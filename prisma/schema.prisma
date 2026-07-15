@@ -1,0 +1,430 @@
+// Novalyte Admin — Revenue Command Center
+// Prisma schema (SQLite). Enums are represented as validated String columns.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Admin membership & authorization
+// ---------------------------------------------------------------------------
+
+model AdminMember {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         String   @default("admin") // founder | admin | sales | operations | directory_reviewer
+  status       String   @default("active") // active | suspended | revoked
+  firstName    String
+  lastName     String
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  savedViews       AdminSavedView[]
+  createdClinics   Clinic[]          @relation("ClinicCreatedBy")
+  updatedClinics   Clinic[]          @relation("ClinicUpdatedBy")
+  ownedClinics     Clinic[]          @relation("ClinicOwner")
+  callSessions     CallSession[]
+  followUpTasks    FollowUpTask[]    @relation("TaskAssignee")
+  deals            Deal[]
+  dealStageHistory DealStageHistory[]
+  pipelineHistory  ClinicPipelineHistory[]
+  imports          ClinicImport[]
+  directoryReviews DirectoryProfile[]
+  activities       Activity[]
+  notifications    Notification[]
+}
+
+model AdminSavedView {
+  id        String   @id @default(cuid())
+  adminId   String
+  name      String
+  scope     String   @default("clinics") // clinics | deals | followups
+  filters   String   @default("{}") // JSON string of filter state
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  admin AdminMember @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@unique([adminId, name, scope])
+}
+
+// ---------------------------------------------------------------------------
+// Clinics — single canonical record
+// ---------------------------------------------------------------------------
+
+model Clinic {
+  id               String   @id @default(cuid())
+  externalId       String?
+  name             String
+  legalName        String?
+  website          String?
+  primaryPhone     String?
+  secondaryPhone   String?
+  generalEmail     String?
+  address          String?
+  city             String?
+  state            String?
+  zip              String?
+  country          String   @default("US")
+  timezone         String   @default("America/New_York")
+  numberOfLocations Int     @default(1)
+  clinicType       String   @default("private_practice") // private_practice | group | franchise | telehealth | hospital
+  telehealth       Boolean  @default(false)
+  operatingStatus  String   @default("operating") // operating | closed | relocated | unknown
+
+  // Pipeline
+  pipelineStage    String   @default("imported")
+  priority         String   @default("normal") // low | normal | high | critical
+
+  // Scoring
+  readinessScore   Int      @default(0)
+  readinessOverride Int?
+  readinessOverrideReason String?
+
+  // Outreach state
+  lastContactedAt  DateTime?
+  nextAction       String?
+  nextActionAt     DateTime?
+  callAttempts     Int      @default(0)
+  interested       Boolean  @default(false)
+  paid             Boolean  @default(false)
+  doNotCall        Boolean  @default(false)
+  archived         Boolean  @default(false)
+
+  // Directory
+  directoryStatus  String   @default("imported")
+
+  // Deals
+  dealValue        Float    @default(0)
+
+  // Ownership
+  owner            String?
+
+  // Qualification (flexible structured data)
+  qualification    String   @default("{}") // JSON
+
+  notes            String?
+  dateImported     DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  createdById      String?
+  updatedById      String?
+  ownerId          String?
+
+  createdBy        AdminMember?     @relation("ClinicCreatedBy", fields: [createdById], references: [id])
+  updatedBy        AdminMember?     @relation("ClinicUpdatedBy", fields: [updatedById], references: [id])
+  ownerMember      AdminMember?     @relation("ClinicOwner", fields: [ownerId], references: [id])
+
+  locations        ClinicLocation[]
+  contacts         ClinicContact[]
+  services         ClinicService[]
+  pipelineHistory  ClinicPipelineHistory[]
+  callSessions     CallSession[]
+  followUps        FollowUpTask[]
+  deals            Deal[]
+  directoryProfile DirectoryProfile?
+
+  @@index([pipelineStage])
+  @@index([state])
+  @@index([priority])
+  @@index([ownerId])
+}
+
+model ClinicLocation {
+  id        String   @id @default(cuid())
+  clinicId  String
+  label     String   @default("Main")
+  address   String?
+  city      String?
+  state     String?
+  zip       String?
+  phone     String?
+  timezone  String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId])
+}
+
+model ClinicContact {
+  id                    String   @id @default(cuid())
+  clinicId              String
+  firstName             String
+  lastName              String
+  title                 String?
+  contactType           String   @default("general_contact") // owner | founder | medical_director | practice_manager | operations_manager | marketing_director | clinical_director | front_desk | general_contact | other
+  email                 String?
+  directPhone           String?
+  mobilePhone           String?
+  linkedinUrl           String?
+  preferredContactMethod String  @default("phone") // phone | email | sms | linkedin
+  isDecisionMaker       Boolean  @default(false)
+  isPrimary             Boolean  @default(false)
+  notes                 String?
+  lastContactedAt       DateTime?
+  consentStatus         String   @default("unknown") // unknown | opted_in | opted_out
+  archived              Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  clinic      Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  callSessions CallSession[]
+  followUps   FollowUpTask[]
+  deals       Deal[]
+
+  @@index([clinicId])
+}
+
+model Service {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  category  String   @default("core")
+  createdAt DateTime @default(now())
+
+  clinicServices ClinicService[]
+}
+
+model ClinicService {
+  id        String @id @default(cuid())
+  clinicId  String
+  serviceId String
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([clinicId, serviceId])
+}
+
+model ClinicPipelineHistory {
+  id             String   @id @default(cuid())
+  clinicId       String
+  fromStage      String?
+  toStage        String
+  changedById    String?
+  changedAt      DateTime @default(now())
+  reason         String?
+  relatedCallId  String?
+  relatedTaskId  String?
+  note           String?
+
+  clinic    Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  changedBy AdminMember? @relation(fields: [changedById], references: [id])
+
+  @@index([clinicId])
+}
+
+model ClinicImport {
+  id            String   @id @default(cuid())
+  fileName      String
+  importedById  String?
+  totalRows     Int      @default(0)
+  successfulRows Int     @default(0)
+  failedRows    Int      @default(0)
+  duplicateRows Int      @default(0)
+  updatedRows   Int      @default(0)
+  status        String   @default("pending") // pending | processing | completed | failed
+  errorReport   String   @default("[]") // JSON
+  createdAt     DateTime @default(now())
+
+  importedBy AdminMember? @relation(fields: [importedById], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Call queue & logging
+// ---------------------------------------------------------------------------
+
+model CallSession {
+  id                          String   @id @default(cuid())
+  clinicId                    String
+  contactId                   String?
+  startedAt                   DateTime @default(now())
+  endedAt                     DateTime?
+  durationSec                 Int      @default(0)
+  direction                   String   @default("outbound") // inbound | outbound
+  attemptNumber               Int      @default(1)
+  answered                    Boolean  @default(false)
+  decisionMakerReached        Boolean  @default(false)
+  outcome                     String   @default("no_answer")
+  interestLevel               String   @default("unknown") // unknown | cold | warm | hot
+  objections                  String   @default("[]") // JSON string[]
+  notes                       String?
+  nextAction                  String?
+  nextActionAt                DateTime?
+  followUpRequired            Boolean  @default(false)
+  pipelineStageRecommendation String?
+  doNotCall                   Boolean  @default(false)
+  invalidNumber               Boolean  @default(false)
+  adminId                     String?
+  createdAt                   DateTime @default(now())
+
+  clinic  Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  contact ClinicContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  admin   AdminMember? @relation(fields: [adminId], references: [id])
+
+  @@index([clinicId])
+  @@index([adminId])
+}
+
+// ---------------------------------------------------------------------------
+// Follow-ups
+// ---------------------------------------------------------------------------
+
+model FollowUpTask {
+  id               String   @id @default(cuid())
+  title            String
+  clinicId         String?
+  contactId        String?
+  relatedCallId    String?
+  relatedDealId    String?
+  taskType         String   @default("general_task") // phone_call | email | meeting | send_information | send_directory_link | complete_listing | prepare_proposal | send_proposal | proposal_follow_up | patient_demand_update | general_task
+  priority         String   @default("normal") // low | normal | high | critical
+  dueDate          DateTime?
+  dueTime          String?
+  assignedAdminId  String?
+  status           String   @default("open") // open | in_progress | completed | rescheduled | cancelled | overdue
+  notes            String?
+  completedAt      DateTime?
+  rescheduledAt    DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  clinic  Clinic?        @relation(fields: [clinicId], references: [id], onDelete: SetNull)
+  contact ClinicContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  deal    Deal?          @relation(fields: [relatedDealId], references: [id], onDelete: SetNull)
+  admin   AdminMember?   @relation("TaskAssignee", fields: [assignedAdminId], references: [id])
+
+  @@index([clinicId])
+  @@index([assignedAdminId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+// ---------------------------------------------------------------------------
+// Deals & revenue
+// ---------------------------------------------------------------------------
+
+model Deal {
+  id                    String   @id @default(cuid())
+  name                  String
+  clinicId              String?
+  contactId             String?
+  offer                 String?
+  ownerId               String?
+  stage                 String   @default("opportunity_identified")
+  estimatedMonthlyValue Float    @default(0)
+  setupFee              Float    @default(0)
+  performanceFee        Float    @default(0)
+  estimatedTotalValue   Float    @default(0)
+  probability           Int      @default(10) // 0-100
+  expectedCloseDate     DateTime?
+  pilotStartDate        DateTime?
+  pilotEndDate          DateTime?
+  proposalUrl           String?
+  contractStatus        String   @default("none") // none | drafting | sent | reviewing | signed | rejected
+  paymentStatus         String   @default("none") // none | pending | partial | paid | overdue
+  notes                 String?
+  lostReason            String?
+  archived              Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  clinic   Clinic?        @relation(fields: [clinicId], references: [id], onDelete: SetNull)
+  contact  ClinicContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  owner    AdminMember?   @relation(fields: [ownerId], references: [id])
+  history  DealStageHistory[]
+  followUps FollowUpTask[]
+
+  @@index([clinicId])
+  @@index([stage])
+}
+
+model DealStageHistory {
+  id          String   @id @default(cuid())
+  dealId      String
+  fromStage   String?
+  toStage     String
+  changedById String?
+  changedAt   DateTime @default(now())
+  note        String?
+
+  deal      Deal         @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  changedBy AdminMember? @relation(fields: [changedById], references: [id])
+
+  @@index([dealId])
+}
+
+// ---------------------------------------------------------------------------
+// Directory operations
+// ---------------------------------------------------------------------------
+
+model DirectoryProfile {
+  id                   String   @id @default(cuid())
+  clinicId             String   @unique
+  listingStatus        String   @default("imported") // imported | unclaimed | claim_requested | identity_review | information_required | approved | published | needs_update | suspended | archived
+  claimStatus          String   @default("unclaimed") // unclaimed | requested | verified | rejected
+  verificationStatus   String   @default("pending") // pending | verified | rejected
+  profileCompleteness  Int      @default(0)
+  servicesCompleted    Boolean  @default(false)
+  providersCompleted   Boolean  @default(false)
+  locationCompleted    Boolean  @default(false)
+  hoursCompleted       Boolean  @default(false)
+  pricingCompleted     Boolean  @default(false)
+  imagesCompleted      Boolean  @default(false)
+  bookingLinkCompleted Boolean  @default(false)
+  lastReviewedAt       DateTime?
+  reviewedById         String?
+  publicationStatus    String   @default("draft") // draft | ready | published | unpublished
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  clinic     Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  reviewedBy AdminMember? @relation(fields: [reviewedById], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Activity & notifications
+// ---------------------------------------------------------------------------
+
+model Activity {
+  id         String   @id @default(cuid())
+  entityType String   // clinic | contact | call | followup | deal | directory | admin | import
+  entityId   String
+  action     String
+  adminId    String?
+  summary    String
+  metadata   String   @default("{}") // JSON
+  timestamp  DateTime @default(now())
+
+  admin AdminMember? @relation(fields: [adminId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([timestamp])
+}
+
+model Notification {
+  id                String   @id @default(cuid())
+  adminId           String
+  type              String
+  title             String
+  message           String
+  isRead            Boolean  @default(false)
+  relatedEntityType String?
+  relatedEntityId   String?
+  createdAt         DateTime @default(now())
+
+  admin AdminMember @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, isRead])
+}
