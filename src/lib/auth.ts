@@ -70,17 +70,27 @@ export async function clearSessionCookie() {
 
 // Returns the active admin member from the session cookie, or null.
 // Also enforces status === "active".
+// NOTE: Login screen is currently disabled — when no session cookie is
+// present, this falls back to the first active admin so the app remains
+// fully usable. Re-enable the login screen by removing the fallback below.
 export async function getSessionAdmin() {
   const c = await cookies();
   const token = c.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  const payload = verifySessionToken(token);
-  if (!payload) return null;
-  const admin = await db.adminMember.findUnique({
-    where: { id: payload.adminId },
+  if (token) {
+    const payload = verifySessionToken(token);
+    if (payload) {
+      const admin = await db.adminMember.findUnique({
+        where: { id: payload.adminId },
+      });
+      if (admin && admin.status === "active") return admin;
+    }
+  }
+  // Fallback: first active admin (login disabled for now).
+  const fallback = await db.adminMember.findFirst({
+    where: { status: "active" },
+    orderBy: { createdAt: "asc" },
   });
-  if (!admin || admin.status !== "active") return null;
-  return admin;
+  return fallback;
 }
 
 export type SessionAdmin = NonNullable<Awaited<ReturnType<typeof getSessionAdmin>>>;

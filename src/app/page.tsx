@@ -1,14 +1,28 @@
-import { getSessionAdmin } from "@/lib/auth";
-import { LoginScreen } from "@/components/admin/login-screen";
 import { AdminApp } from "@/components/admin/admin-app";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const admin = await getSessionAdmin();
+  // Login screen removed for now — load the first active admin directly.
+  let admin = await db.adminMember.findFirst({
+    where: { status: "active" },
+    orderBy: { createdAt: "asc" },
+  });
 
+  // Fallback: ensure a founder exists so the app always renders.
   if (!admin) {
-    return <LoginScreen />;
+    const { hashPassword } = await import("@/lib/auth");
+    admin = await db.adminMember.create({
+      data: {
+        email: "founder@novalyte.io",
+        passwordHash: hashPassword("novalyte2025"),
+        role: "founder",
+        status: "active",
+        firstName: "Jordan",
+        lastName: "Ellis",
+      },
+    });
   }
 
   return (
