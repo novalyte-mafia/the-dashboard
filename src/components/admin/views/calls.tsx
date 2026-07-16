@@ -249,6 +249,33 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const [research, setResearch] = useState<string | null>(null);
   const [researchLoading, setResearchLoading] = useState(false);
 
+  // High-Quality Voice & Audio Feedback Mode
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceName, setSelectedVoiceName] = useState<string>("");
+  const [isHeadphonesMode, setIsHeadphonesMode] = useState<boolean>(false);
+  const isListeningRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      const loadVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        // Filter for English speaking options
+        const englishVoices = voices.filter(v => v.lang.startsWith("en"));
+        setAvailableVoices(englishVoices);
+        
+        if (englishVoices.length > 0 && !selectedVoiceName) {
+          // Fallback selection of common natural sounding system models
+          const preferred = englishVoices.find(v => v.name.includes("Siri") || v.name.includes("Samantha") || v.name.includes("Google US English") || v.name.includes("Enhanced")) || englishVoices[0];
+          setSelectedVoiceName(preferred?.name || "");
+        }
+      };
+      loadVoices();
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }
+    }
+  }, [selectedVoiceName]);
+
   // Practice Configuration State
   const [practicePersona, setPracticePersona] = useState<string>("receptionist");
   const [practiceScenario, setPracticeScenario] = useState<string>("scenario_friendly");
@@ -649,6 +676,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setScenarioStepIndex(0);
     setPracticeInterruptionCount(0);
     stopAudioTesting();
+    isListeningRef.current = true; // Activate mic capture tracking
 
     // Dials and connects in 2 seconds
     setTimeout(() => {
@@ -671,8 +699,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
     const utterance = new SpeechSynthesisUtterance(text);
     const voices = window.speechSynthesis.getVoices();
-    const personaObj = PRACTICE_PERSONAS.find(p => p.id === practicePersona);
-    const voice = voices.find(v => v.name.includes(personaObj?.voiceName || "English")) || voices.find(v => v.lang.startsWith("en")) || voices[0];
+    const voice = voices.find(v => v.name === selectedVoiceName) || voices.find(v => v.lang.startsWith("en")) || voices[0];
     
     if (voice) utterance.voice = voice;
     utterance.volume = speakerEnabled ? 1.0 : 0.0;
@@ -680,11 +707,25 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     // Adjust speed by difficulty
     utterance.rate = practiceDifficulty === "beginner" ? 0.85 : practiceDifficulty === "advanced" ? 1.15 : 1.00;
 
+    // Speaker Mode Auto-Abortion to prevent feedback echo loops
+    if (!isHeadphonesMode && recognitionRef.current) {
+      isListeningRef.current = false;
+      try { recognitionRef.current.abort(); } catch (e) {}
+    }
+
     utterance.onend = () => {
       setIsClinicSpeaking(false);
+      if (!isHeadphonesMode && recognitionRef.current) {
+        isListeningRef.current = true;
+        try { recognitionRef.current.start(); } catch (e) {}
+      }
     };
     utterance.onerror = () => {
       setIsClinicSpeaking(false);
+      if (!isHeadphonesMode && recognitionRef.current) {
+        isListeningRef.current = true;
+        try { recognitionRef.current.start(); } catch (e) {}
+      }
     };
 
     window.speechSynthesis.speak(utterance);
@@ -721,8 +762,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     };
 
     rec.onend = () => {
-      if (callState === "connected") {
-        // Auto-restart recognition loop if call is active
+      if (callState === "connected" && isListeningRef.current) {
+        // Auto-restart recognition loop if call is active and we want to listen
         try { rec.start(); } catch (err) {}
       }
     };
@@ -1456,6 +1497,63 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                       );
                     })}
                   </div>
+                </div>
+              </div>
+
+              {/* Advanced audio controls line */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t pt-3.5 text-xs">
+                {/* Voice Selector */}
+                <div className="space-y-1">
+                  <label className="font-semibold text-muted-foreground block">Simulated Voice Output</label>
+                  <Select value={selectedVoiceName} onValueChange={setSelectedVoiceName}>
+                    <SelectTrigger className="h-8 text-xs bg-background border-indigo-200">
+                      <SelectValue placeholder="Select System Voice" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableVoices.map((v) => (
+                        <SelectItem key={v.name} value={v.name}>{v.name} ({v.lang.split("-")[0].toUpperCase()})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground italic mt-1 leading-normal">
+                    Choose a Siri, Samantha, or Google voice model installed on your system.
+                  </p>
+                </div>
+
+                {/* Speaker vs Headphones mode */}
+                <div className="space-y-1">
+                  <label className="font-semibold text-muted-foreground block">Audio Feedback Mode</label>
+                  <div className="flex gap-1.5 mt-0.5">
+                    <button
+                      onClick={() => {
+                        setIsHeadphonesMode(false);
+                        toast.info("Speaker Mode active: Mic auto-pauses while AI speaks to block feedback loops.");
+                      }}
+                      className={`flex-1 text-[10px] py-1 border rounded-lg font-bold transition-all ${
+                        !isHeadphonesMode
+                          ? "bg-indigo-600 text-white border-indigo-700 shadow-sm"
+                          : "bg-background text-muted-foreground border-indigo-200 hover:bg-muted"
+                      }`}
+                    >
+                      Speaker (Auto-Mute Mic)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsHeadphonesMode(true);
+                        toast.info("Headphones Mode active: Mic remains active for barge-in interruptions.");
+                      }}
+                      className={`flex-1 text-[10px] py-1 border rounded-lg font-bold transition-all ${
+                        isHeadphonesMode
+                          ? "bg-indigo-600 text-white border-indigo-700 shadow-sm"
+                          : "bg-background text-muted-foreground border-indigo-200 hover:bg-muted"
+                      }`}
+                    >
+                      Headphones (Barge-In)
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground italic mt-1 leading-normal">
+                    Use Speaker mode if your mic picks up computer speaker echo.
+                  </p>
                 </div>
               </div>
 
