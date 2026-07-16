@@ -33,8 +33,8 @@ async function main() {
       passwordHash: hashPassword("novalyte2025"),
       role: "founder",
       status: "active",
-      firstName: "Jordan",
-      lastName: "Ellis",
+      firstName: "Jamil",
+      lastName: "Yakasai",
       lastLoginAt: hoursAgo(2),
     },
   });

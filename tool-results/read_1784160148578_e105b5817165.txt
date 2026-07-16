@@ -1,0 +1,273 @@
+     1→   350→    clinicId: c.id,
+     2→   351→    clinicName: c.name,
+     3→   352→    listingStatus: c.directoryStatus,
+     4→   353→    claimStatus: c.directoryStatus === "published" || c.directoryStatus === "approved" ? "verified" : c.directoryStatus === "unclaimed" ? "unclaimed" : "requested",
+     5→   354→    verificationStatus: c.verificationStatus,
+     6→   355→    profileCompleteness: completion,
+     7→   356→    ...data,
+     8→   357→    lastReviewedAt: c.verificationStatus === "verified" ? daysAgo(3) : undefined,
+     9→   358→    reviewedByName: c.verificationStatus === "verified" ? "Jamil Yakasai" : undefined,
+    10→   359→    publicationStatus: c.directoryStatus === "published" ? "published" : c.directoryStatus === "approved" ? "ready" : "draft",
+    11→   360→  };
+    12→   361→});
+    13→   362→
+    14→   363→// ---------------------------------------------------------------------------
+    15→   364→// Patient Leads
+    16→   365→// ---------------------------------------------------------------------------
+    17→   366→const treatmentOptions = ["trt", "glp-1", "medical-weight-loss", "ed-care", "peptide-therapy", "hormone-optimization", "iv-therapy"];
+    18→   367→const leadSources = ["google_ads", "organic_search", "directory", "referral", "facebook", "direct"];
+    19→   368→const cities = [["Austin","TX"],["Miami","FL"],["Denver","CO"],["Phoenix","AZ"],["Houston","TX"],["Dallas","TX"],["Seattle","WA"],["Atlanta","GA"],["Charlotte","NC"],["Nashville","TN"]];
+    20→   369→
+    21→   370→export const mockPatientLeads: PatientLead[] = Array.from({ length: 24 }, (_, i) => {
+    22→   371→  const cityIdx = i % cities.length;
+    23→   372→  const [city, state] = cities[cityIdx];
+    24→   373→  const treatment = treatmentOptions[i % treatmentOptions.length];
+    25→   374→  const statuses: PatientLead["status"][] = ["new","qualified","contacted","routed","booked","lost","disqualified","duplicate"];
+    26→   375→  const status = i < 6 ? "new" : statuses[i % statuses.length];
+    27→   376→  const names = ["James Wilson","Michael Chen","Robert Taylor","David Martinez","Chris Anderson","Daniel Lee","Matthew Thompson","Anthony Garcia","Mark Davis","Steven Lopez","Brian Carter","Kevin Nguyen","Jason Reed","Ryan Murphy","Eric Phillips","Thomas Wright","Andrew Scott","Nicholas Hall","Joshua Allen","Justin Young","Brandon King","Nathan Green","Tyler Adams","Caleb Baker"];
+    28→   377→  return {
+    29→   378→    id: `pl_${i + 1}`,
+    30→   379→    name: names[i],
+    31→   380→    email: `patient${i + 1}@email.com`,
+    32→   381→    phone: `(${200 + i}) 555-${1000 + i}`,
+    33→   382→    city, state, zip: `${10001 + i * 7}`,
+    34→   383→    age: 30 + (i % 30),
+    35→   384→    treatmentInterest: treatment,
+    36→   385→    symptoms: i % 3 === 0 ? "Fatigue, low energy" : i % 3 === 1 ? "Weight gain despite exercise" : "Low libido",
+    37→   386→    assessmentScore: 60 + (i % 40),
+    38→   387→    preferredContact: i % 3 === 0 ? "phone" : i % 3 === 1 ? "email" : "sms",
+    39→   388→    availability: i % 2 === 0 ? "Weekday mornings" : "Evenings",
+    40→   389→    insurancePreference: i % 3 === 0 ? "self_pay" : i % 3 === 1 ? "insurance" : "unsure",
+    41→   390→    telehealthPreference: i % 2 === 0,
+    42→   391→    distancePreference: 10 + (i % 40),
+    43→   392→    consentStatus: i % 5 === 0 ? "opted_out" : "opted_in",
+    44→   393→    leadSource: leadSources[i % leadSources.length],
+    45→   394→    campaignSource: i < 8 ? "TRT_Search_Q3" : i < 16 ? "GLP1_Display_Q3" : "Directory_Organic",
+    46→   395→    qualificationScore: 40 + (i % 60),
+    47→   396→    urgencyScore: 20 + (i % 80),
+    48→   397→    status,
+    49→   398→    assignedClinicId: status === "routed" || status === "booked" ? `cln_${(i % 16) + 1}` : undefined,
+    50→   399→    assignedClinicName: status === "routed" || status === "booked" ? mockClinics[i % 16].name : undefined,
+    51→   400→    referralStatus: status === "routed" ? "sent" : status === "booked" ? "booked" : undefined,
+    52→   401→    bookingOutcome: status === "booked" ? "appointment_scheduled" : undefined,
+    53→   402→    notes: i % 4 === 0 ? "High intent — ready to book" : undefined,
+    54→   403→    createdAt: daysAgo(i),
+    55→   404→  };
+    56→   405→});
+    57→   406→
+    58→   407→export const mockClinicMatches: ClinicMatch[] = mockPatientLeads.slice(0, 6).flatMap((lead, idx) => {
+    59→   408→  return mockClinics.slice(0, 4).map((clinic, i) => ({
+    60→   409→    id: `match_${idx}_${i}`,
+    61→   410→    patientLeadId: lead.id,
+    62→   411→    clinicId: clinic.id,
+    63→   412→    clinicName: clinic.name,
+    64→   413→    matchScore: 90 - i * 15 - (idx % 10),
+    65→   414→    geographicFit: 100 - i * 20,
+    66→   415→    treatmentFit: clinic.services.includes(lead.treatmentInterest) ? 95 : 40,
+    67→   416→    capacityFit: 70 + (i * 5),
+    68→   417→    telehealthFit: lead.telehealthPreference && clinic.telehealth ? 100 : 50,
+    69→   418→    bookingFit: 80 - i * 10,
+    70→   419→    priceFit: 60 + (i * 8),
+    71→   420→    verificationStatus: clinic.verificationStatus,
+    72→   421→    explanation: `Geographic fit ${100 - i * 20}%, treatment ${clinic.services.includes(lead.treatmentInterest) ? "matches" : "partial match"}, ${clinic.telehealth ? "telehealth available" : "in-person only"}.`,
+    73→   422→  }));
+    74→   423→});
+    75→   424→
+    76→   425→// ---------------------------------------------------------------------------
+    77→   426→// Demand Intelligence / Markets
+    78→   427→// ---------------------------------------------------------------------------
+    79→   428→const marketSeeds = [
+    80→   429→  { geo: "Austin, TX", type: "city", state: "TX", city: "Austin", vol: 14800, trend: 24, cpc: 4.2, comp: 68, supply: 12, demand: 85 },
+    81→   430→  { geo: "Miami, FL", type: "city", state: "FL", city: "Miami", vol: 18200, trend: 31, cpc: 5.1, comp: 72, supply: 18, demand: 92 },
+    82→   431→  { geo: "Dallas, TX", type: "city", state: "TX", city: "Dallas", vol: 12600, trend: 18, cpc: 3.8, comp: 64, supply: 15, demand: 78 },
+    83→   432→  { geo: "Denver, CO", type: "city", state: "CO", city: "Denver", vol: 9800, trend: 22, cpc: 4.5, comp: 60, supply: 8, demand: 72 },
+    84→   433→  { geo: "Phoenix, AZ", type: "city", state: "AZ", city: "Phoenix", vol: 11400, trend: 15, cpc: 3.5, comp: 58, supply: 10, demand: 68 },
+    85→   434→  { geo: "Houston, TX", type: "city", state: "TX", city: "Houston", vol: 13500, trend: 19, cpc: 3.9, comp: 66, supply: 14, demand: 80 },
+    86→   435→  { geo: "Seattle, WA", type: "city", state: "WA", city: "Seattle", vol: 8200, trend: 12, cpc: 4.8, comp: 62, supply: 7, demand: 65 },
+    87→   436→  { geo: "Atlanta, GA", type: "city", state: "GA", city: "Atlanta", vol: 10100, trend: 27, cpc: 3.6, comp: 55, supply: 9, demand: 74 },
+    88→   437→  { geo: "75201 (Dallas)", type: "zip", state: "TX", zip: "75201", vol: 3200, trend: 34, cpc: 4.1, comp: 50, supply: 3, demand: 88 },
+    89→   438→  { geo: "33101 (Miami)", type: "zip", state: "FL", zip: "33101", vol: 4100, trend: 38, cpc: 5.3, comp: 65, supply: 5, demand: 94 },
+    90→   439→  { geo: "Texas", type: "state", state: "TX", vol: 52000, trend: 21, cpc: 3.9, comp: 66, supply: 41, demand: 82 },
+    91→   440→  { geo: "Florida", type: "state", state: "FL", vol: 48000, trend: 29, cpc: 4.7, comp: 70, supply: 35, demand: 90 },
+    92→   441→  { geo: "California", type: "state", state: "CA", vol: 61000, trend: 14, cpc: 5.5, comp: 78, supply: 52, demand: 76 },
+    93→   442→];
+    94→   443→
+    95→   444→export const mockMarkets: MarketData[] = marketSeeds.map((m, i) => {
+    96→   445→  const gap = m.demand - m.supply;
+    97→   446→  return {
+    98→   447→    id: `mkt_${i + 1}`,
+    99→   448→    geography: m.geo,
+   100→   449→    type: m.type as "state" | "city" | "zip",
+   101→   450→    state: m.state,
+   102→   451→    city: m.city,
+   103→   452→    zip: m.zip,
+   104→   453→    searchVolume: m.vol,
+   105→   454→    searchTrend: m.trend,
+   106→   455→    topTreatments: ["trt", "glp-1", "medical-weight-loss"].slice(0, 2 + (i % 2)),
+   107→   456→    topKeywords: [
+   108→   457→      { keyword: "trt clinic near me", volume: Math.round(m.vol * 0.3), cpc: m.cpc * 1.2 },
+   109→   458→      { keyword: "testosterone replacement therapy", volume: Math.round(m.vol * 0.25), cpc: m.cpc * 1.1 },
+   110→   459→      { keyword: "glp-1 weight loss", volume: Math.round(m.vol * 0.2), cpc: m.cpc * 0.9 },
+   111→   460→    ],
+   112→   461→    avgCpc: m.cpc,
+   113→   462→    competitionScore: m.comp,
+   114→   463→    commercialIntent: 70 + (i % 25),
+   115→   464→    clinicSupply: m.supply,
+   116→   465→    patientDemand: m.demand,
+   117→   466→    supplyDemandGap: gap,
+   118→   467→    opportunityScore: Math.min(100, Math.round(gap * 1.2 + m.trend)),
+   119→   468→    rising: m.trend > 20,
+   120→   469→  };
+   121→   470→});
+   122→   471→
+   123→   472→// ---------------------------------------------------------------------------
+   124→   473→// Campaigns
+   125→   474→// ---------------------------------------------------------------------------
+   126→   475→export const mockCampaigns: Campaign[] = [
+   127→   476→  { id: "cmp_1", name: "TRT Search — National", platform: "google", status: "active", budget: 15000, spent: 12400, impressions: 420000, clicks: 8400, conversions: 312, leads: 180, costPerLead: 69, ctr: 2.0, conversionRate: 3.7, startDate: daysAgo(30), targeting: "Search — TRT keywords, US" },
+   128→   477→  { id: "cmp_2", name: "GLP-1 Display — TX & FL", platform: "meta", status: "active", budget: 8000, spent: 6200, impressions: 310000, clicks: 6200, conversions: 248, leads: 142, costPerLead: 44, ctr: 2.0, conversionRate: 4.0, startDate: daysAgo(25), targeting: "Display — Weight loss, TX+FL" },
+   129→   478→  { id: "cmp_3", name: "Directory Retargeting", platform: "meta", status: "active", budget: 3000, spent: 2100, impressions: 180000, clicks: 2700, conversions: 89, leads: 45, costPerLead: 47, ctr: 1.5, conversionRate: 3.3, startDate: daysAgo(20), targeting: "Retargeting — Directory visitors" },
+   130→   479→  { id: "cmp_4", name: "TRT TikTok — Men 35-55", platform: "tiktok", status: "paused", budget: 5000, spent: 4800, impressions: 520000, clicks: 7800, conversions: 156, leads: 78, costPerLead: 62, ctr: 1.5, conversionRate: 2.0, startDate: daysAgo(45), endDate: daysAgo(10), targeting: "Men 35-55, TRT interest" },
+   131→   480→  { id: "cmp_5", name: "Email — Nurture Sequence", platform: "email", status: "active", budget: 500, spent: 0, impressions: 12000, clicks: 1800, conversions: 96, leads: 96, costPerLead: 0, ctr: 15.0, conversionRate: 5.3, startDate: daysAgo(60), targeting: "Existing leads — nurture" },
+   132→   481→  { id: "cmp_6", name: "LinkedIn — Clinic Outreach", platform: "linkedin", status: "draft", budget: 2000, spent: 0, impressions: 0, clicks: 0, conversions: 0, leads: 0, costPerLead: 0, ctr: 0, conversionRate: 0, targeting: "Clinic owners & medical directors" },
+   133→   482→];
+   134→   483→
+   135→   484→// ---------------------------------------------------------------------------
+   136→   485→// Workforce
+   137→   486→// ---------------------------------------------------------------------------
+   138→   487→export const mockProfessionals: Professional[] = [
+   139→   488→  { id: "pro_1", name: "Dr. Sarah Mitchell", role: "Nurse Practitioner", specialty: "TRT & Hormone Optimization", city: "Austin", state: "TX", licenses: ["TX APRN-12345"], certifications: ["AANP", "Hormone Therapy Cert"], yearsExperience: 8, availability: "available", linkedinUrl: "https://linkedin.com/in/sarahmitchell", credentialStatus: "verified", verificationStatus: "verified", matchScore: 92, createdAt: daysAgo(20) },
+   140→   489→  { id: "pro_2", name: "Dr. James Okonkwo", role: "Medical Director", specialty: "Men's Health", city: "Miami", state: "FL", licenses: ["FL MD-67890"], certifications: ["Board Certified IM"], yearsExperience: 12, availability: "open", linkedinUrl: "https://linkedin.com/in/jamesokonkwo", credentialStatus: "pending", verificationStatus: "pending", matchScore: 88, createdAt: daysAgo(15) },
+   141→   490→  { id: "pro_3", name: "Lisa Chen, PA-C", role: "Physician Assistant", specialty: "Weight Loss & GLP-1", city: "Denver", state: "CO", licenses: ["CO PA-54321"], certifications: ["NCCPA", "Obesity Medicine"], yearsExperience: 6, availability: "available", credentialStatus: "verified", verificationStatus: "verified", matchScore: 85, createdAt: daysAgo(10) },
+   142→   491→  { id: "pro_4", name: "Dr. Marcus Bell", role: "Physician", specialty: "Peptide Therapy & Longevity", city: "Phoenix", state: "AZ", licenses: ["AZ MD-11111"], certifications: ["Board Certified FM"], yearsExperience: 15, availability: "placed", credentialStatus: "verified", verificationStatus: "verified", createdAt: daysAgo(45) },
+   143→   492→  { id: "pro_5", name: "Rachel Torres, NP", role: "Nurse Practitioner", specialty: "IV Therapy & Wellness", city: "Houston", state: "TX", licenses: ["TX APRN-99999"], certifications: ["AANP"], yearsExperience: 4, availability: "open", credentialStatus: "expired", verificationStatus: "pending", matchScore: 72, createdAt: daysAgo(8) },
+   144→   493→  { id: "pro_6", name: "Dr. Anthony Reed", role: "Medical Director", specialty: "Sexual Wellness & ED", city: "Atlanta", state: "GA", licenses: ["GA MD-33333"], certifications: ["Board Certified Urology"], yearsExperience: 18, availability: "available", credentialStatus: "verified", verificationStatus: "verified", matchScore: 90, createdAt: daysAgo(12) },
+   145→   494→];
+   146→   495→
+   147→   496→export const mockJobs: JobListing[] = [
+   148→   497→  { id: "job_1", title: "Medical Director — TRT Clinic", employerName: "Summit Vitality Clinic", employerId: "cln_1", specialty: "Men's Health", city: "Austin", state: "TX", type: "part_time", salaryMin: 180000, salaryMax: 240000, status: "open", applicationsCount: 4, createdAt: daysAgo(14) },
+   149→   498→  { id: "job_2", title: "NP — Hormone Optimization", employerName: "Evergreen Hormone Clinic", employerId: "cln_3", specialty: "Hormone Optimization", city: "Seattle", state: "WA", type: "full_time", salaryMin: 120000, salaryMax: 150000, status: "open", applicationsCount: 2, createdAt: daysAgo(10) },
+   150→   499→  { id: "job_3", title: "PA-C — Weight Loss Program", employerName: "Gulf Coast Wellness Center", employerId: "cln_5", specialty: "Medical Weight Loss", city: "Houston", state: "TX", type: "full_time", salaryMin: 110000, salaryMax: 135000, status: "open", applicationsCount: 3, createdAt: daysAgo(7) },
+   151→   500→  { id: "job_4", title: "Medical Director — Longevity", employerName: "Brightside Longevity Clinic", employerId: "cln_8", specialty: "Longevity Medicine", city: "Miami", state: "FL", type: "part_time", salaryMin: 200000, salaryMax: 280000, status: "draft", applicationsCount: 0, createdAt: daysAgo(3) },
+   152→   501→];
+   153→   502→
+   154→   503→export const mockApplications: JobApplication[] = [
+   155→   504→  { id: "app_1", jobId: "job_1", jobTitle: "Medical Director — TRT Clinic", employerName: "Summit Vitality Clinic", professionalId: "pro_2", professionalName: "Dr. James Okonkwo", status: "interview", appliedAt: daysAgo(8), matchScore: 88 },
+   156→   505→  { id: "app_2", jobId: "job_1", jobTitle: "Medical Director — TRT Clinic", employerName: "Summit Vitality Clinic", professionalId: "pro_6", professionalName: "Dr. Anthony Reed", status: "reviewing", appliedAt: daysAgo(5), matchScore: 90 },
+   157→   506→  { id: "app_3", jobId: "job_2", jobTitle: "NP — Hormone Optimization", employerName: "Evergreen Hormone Clinic", professionalId: "pro_1", professionalName: "Dr. Sarah Mitchell", status: "submitted", appliedAt: daysAgo(3), matchScore: 92 },
+   158→   507→  { id: "app_4", jobId: "job_3", jobTitle: "PA-C — Weight Loss Program", employerName: "Gulf Coast Wellness Center", professionalId: "pro_3", professionalName: "Lisa Chen, PA-C", status: "interview", appliedAt: daysAgo(4), matchScore: 85 },
+   159→   508→];
+   160→   509→
+   161→   510→// ---------------------------------------------------------------------------
+   162→   511→// Marketplace
+   163→   512→// ---------------------------------------------------------------------------
+   164→   513→export const mockProducts: Product[] = [
+   165→   514→  { id: "prd_1", title: "TRT Starter Kit", sku: "NV-TRT-001", category: "Treatment Kits", vendor: "Novalyte Supply Co", price: 299, compareAtPrice: 349, cost: 145, margin: 51, inventory: 240, status: "active", visibility: "public", rating: 4.7, reviewCount: 128 },
+   166→   515→  { id: "prd_2", title: "GLP-1 Injection Supplies", sku: "NV-GLP-002", category: "Treatment Kits", vendor: "Novalyte Supply Co", price: 149, cost: 62, margin: 58, inventory: 580, status: "active", visibility: "public", rating: 4.5, reviewCount: 84 },
+   167→   516→  { id: "prd_3", title: "Peptide Therapy Bundle", sku: "NV-PEP-003", category: "Treatment Kits", vendor: "BioPeptide Labs", price: 399, compareAtPrice: 449, cost: 210, margin: 47, inventory: 85, status: "active", visibility: "public", rating: 4.8, reviewCount: 56 },
+   168→   517→  { id: "prd_4", title: "IV Therapy Drip Set", sku: "NV-IV-004", category: "Clinic Supplies", vendor: "MedSupply Direct", price: 89, cost: 38, margin: 57, inventory: 0, status: "out_of_stock", visibility: "public", rating: 4.3, reviewCount: 42 },
+   169→   518→  { id: "prd_5", title: "Vitality Supplement Stack", sku: "NV-SUP-005", category: "Supplements", vendor: "Novalyte Nutrition", price: 129, compareAtPrice: 159, cost: 48, margin: 63, inventory: 1200, status: "active", visibility: "public", rating: 4.6, reviewCount: 312 },
+   170→   519→  { id: "prd_6", title: "At-Home Testosterone Test", sku: "NV-TST-006", category: "Diagnostics", vendor: "Novalyte Diagnostics", price: 79, cost: 28, margin: 65, inventory: 450, status: "active", visibility: "public", rating: 4.4, reviewCount: 198 },
+   171→   520→];
+   172→   521→
+   173→   522→export const mockOrders: Order[] = [
+   174→   523→  { id: "ord_1", orderNumber: "NV-10042", customerName: "James Wilson", customerEmail: "jwilson@email.com", items: [{ name: "TRT Starter Kit", qty: 1, price: 299 }], total: 299, paymentStatus: "paid", fulfillmentStatus: "shipped", trackingNumber: "1Z999AA10123456784", createdAt: daysAgo(2) },
+   175→   524→  { id: "ord_2", orderNumber: "NV-10043", customerName: "Michael Chen", customerEmail: "mchen@email.com", items: [{ name: "Vitality Supplement Stack", qty: 2, price: 129 }, { name: "At-Home Testosterone Test", qty: 1, price: 79 }], total: 337, paymentStatus: "paid", fulfillmentStatus: "fulfilled", createdAt: daysAgo(3) },
+   176→   525→  { id: "ord_3", orderNumber: "NV-10044", customerName: "Robert Taylor", customerEmail: "rtaylor@email.com", items: [{ name: "Peptide Therapy Bundle", qty: 1, price: 399 }], total: 399, paymentStatus: "pending", fulfillmentStatus: "unfulfilled", createdAt: daysAgo(1), riskFlags: ["Address mismatch"] },
+   177→   526→  { id: "ord_4", orderNumber: "NV-10045", customerName: "David Martinez", customerEmail: "dmartinez@email.com", items: [{ name: "GLP-1 Injection Supplies", qty: 3, price: 149 }], total: 447, paymentStatus: "paid", fulfillmentStatus: "partial", createdAt: daysAgo(4) },
+   178→   527→  { id: "ord_5", orderNumber: "NV-10046", customerName: "Chris Anderson", customerEmail: "canderson@email.com", items: [{ name: "IV Therapy Drip Set", qty: 2, price: 89 }], total: 178, paymentStatus: "failed", fulfillmentStatus: "unfulfilled", createdAt: daysAgo(1), riskFlags: ["Payment declined"] },
+   179→   528→  { id: "ord_6", orderNumber: "NV-10047", customerName: "Daniel Lee", customerEmail: "dlee@email.com", items: [{ name: "TRT Starter Kit", qty: 1, price: 299 }, { name: "At-Home Testosterone Test", qty: 1, price: 79 }], total: 378, paymentStatus: "paid", fulfillmentStatus: "shipped", trackingNumber: "1Z999AA10123456790", createdAt: daysAgo(5) },
+   180→   529→];
+   181→   530→
+   182→   531→// ---------------------------------------------------------------------------
+   183→   532→// Content / Articles
+   184→   533→// ---------------------------------------------------------------------------
+   185→   534→export const mockArticles: Article[] = [
+   186→   535→  { id: "art_1", title: "TRT Therapy: Complete Guide for Men Over 40", slug: "trt-therapy-guide-men-over-40", excerpt: "Everything you need to know about testosterone replacement therapy.", category: "Treatment Guides", treatmentCategory: "trt", audience: "men_35_plus", searchIntent: "informational", primaryKeyword: "trt therapy", secondaryKeywords: ["testosterone replacement", "trt benefits", "trt side effects"], authorName: "Dr. Sarah Mitchell", reviewerName: "Dr. James Okonkwo", status: "published", wordCount: 2400, seoScore: 88, readabilityScore: 72, publishDate: daysAgo(10), views: 18400, createdAt: daysAgo(20) },
+   187→   536→  { id: "art_2", title: "GLP-1 Medications for Weight Loss: What to Expect", slug: "glp-1-weight-loss-guide", excerpt: "A comprehensive look at GLP-1 agonists for medical weight loss.", category: "Treatment Guides", treatmentCategory: "glp-1", audience: "weight_loss_seekers", searchIntent: "commercial", primaryKeyword: "glp-1 weight loss", secondaryKeywords: ["semaglutide", "weight loss injections", "glp-1 results"], authorName: "Lisa Chen, PA-C", status: "scheduled", wordCount: 1800, seoScore: 84, readabilityScore: 75, publishDate: daysFromNow(3), createdAt: daysAgo(8) },
+   188→   537→  { id: "art_3", title: "5 Signs You May Have Low Testosterone", slug: "signs-of-low-testosterone", excerpt: "Recognizing the symptoms of low T and when to seek treatment.", category: "Symptoms", treatmentCategory: "trt", searchIntent: "informational", primaryKeyword: "low testosterone symptoms", secondaryKeywords: ["low t signs", "testosterone deficiency"], authorName: "Dr. Anthony Reed", status: "review", wordCount: 1200, seoScore: 76, readabilityScore: 80, createdAt: daysAgo(5) },
+   189→   538→  { id: "art_4", title: "Peptide Therapy Benefits: The Complete 2024 Guide", slug: "peptide-therapy-benefits-guide", category: "Treatment Guides", treatmentCategory: "peptide-therapy", searchIntent: "informational", primaryKeyword: "peptide therapy benefits", secondaryKeywords: [], authorName: "Jamil Yakasai", status: "draft", wordCount: 800, seoScore: 62, readabilityScore: 68, createdAt: daysAgo(3) },
+   190→   539→  { id: "art_5", title: "IV Therapy: Does It Really Work?", slug: "iv-therapy-effectiveness", category: "Wellness", treatmentCategory: "iv-therapy", searchIntent: "informational", primaryKeyword: "does iv therapy work", secondaryKeywords: ["iv therapy benefits"], authorName: "Dr. Sarah Mitchell", status: "idea", createdAt: daysAgo(1) },
+   191→   540→  { id: "art_6", title: "Hormone Optimization for Athletic Performance", slug: "hormone-optimization-athletic-performance", category: "Performance", treatmentCategory: "hormone-optimization", searchIntent: "commercial", primaryKeyword: "hormone optimization", secondaryKeywords: ["athletic performance hormones"], authorName: "Dr. Marcus Bell", reviewerName: "Dr. James Okonkwo", status: "approved", wordCount: 2000, seoScore: 90, readabilityScore: 74, createdAt: daysAgo(12) },
+   192→   541→  { id: "art_7", title: "Erectile Dysfunction: Treatment Options Explained", slug: "ed-treatment-options", category: "Treatment Guides", treatmentCategory: "ed-care", searchIntent: "commercial", primaryKeyword: "ed treatment options", secondaryKeywords: ["erectile dysfunction treatment"], authorName: "Dr. Anthony Reed", status: "published", wordCount: 1600, seoScore: 85, readabilityScore: 78, publishDate: daysAgo(20), views: 12200, createdAt: daysAgo(30) },
+   193→   542→  { id: "art_8", title: "Medical Weight Loss: GLP-1 vs Traditional Diets", slug: "glp-1-vs-traditional-diets", category: "Weight Loss", treatmentCategory: "glp-1", searchIntent: "commercial", primaryKeyword: "glp-1 vs diet", secondaryKeywords: [], authorName: "Lisa Chen, PA-C", status: "brief", createdAt: daysAgo(2) },
+   194→   543→];
+   195→   544→
+   196→   545→// ---------------------------------------------------------------------------
+   197→   546→// Automation / AI
+   198→   547→// ---------------------------------------------------------------------------
+   199→   548→export const mockAutomations: Automation[] = [
+   200→   549→  { id: "auto_1", name: "New Lead → Auto-Qualify", description: "Scores and qualifies new patient leads", trigger: "patient_lead.created", actions: ["ai_score_lead", "assign_to_queue"], status: "active", lastRunAt: hoursAgo(1), runCount: 1240, failureCount: 2 },
+   201→   550→  { id: "auto_2", name: "Call Logged → Update Pipeline", description: "Updates clinic stage based on call outcome", trigger: "call_session.logged", actions: ["update_clinic_stage", "create_followup_if_needed"], status: "active", lastRunAt: hoursAgo(3), runCount: 580, failureCount: 0 },
+   202→   551→  { id: "auto_3", name: "Directory Application → Notify", description: "Sends notification on new directory application", trigger: "directory_application.submitted", actions: ["send_notification", "create_task"], status: "active", lastRunAt: hoursAgo(6), runCount: 42, failureCount: 0 },
+   203→   552→  { id: "auto_4", name: "Overdue Follow-Up Alert", description: "Escalates follow-ups overdue by 24h+", trigger: "followup.overdue", actions: ["send_alert", "reassign_if_needed"], status: "active", lastRunAt: hoursAgo(12), runCount: 180, failureCount: 1 },
+   204→   553→  { id: "auto_5", name: "Article Published → Social Post", description: "Auto-generates social media posts for new articles", trigger: "article.published", actions: ["generate_social_copy", "schedule_posts"], status: "error", lastRunAt: daysAgo(2), runCount: 24, failureCount: 8 },
+   205→   554→  { id: "auto_6", name: "Deal Won → Onboarding Workflow", description: "Triggers clinic onboarding when deal is won", trigger: "deal.stage_changed", actions: ["create_onboarding_tasks", "notify_ops"], status: "paused", runCount: 12, failureCount: 0 },
+   206→   555→];
+   207→   556→
+   208→   557→export const mockAIUsage: AIUsageRecord[] = Array.from({ length: 12 }, (_, i) => ({
+   209→   558→  id: `aiu_${i + 1}`,
+   210→   559→  model: i % 3 === 0 ? "gpt-4o" : i % 3 === 1 ? "gpt-4o-mini" : "text-embedding-3",
+   211→   560→  feature: i % 4 === 0 ? "article_generation" : i % 4 === 1 ? "lead_scoring" : i % 4 === 2 ? "call_transcript" : "clinic_research",
+   212→   561→  promptTokens: 500 + i * 200,
+   213→   562→  completionTokens: 800 + i * 300,
+   214→   563→  cost: (0.02 + i * 0.01),
+   215→   564→  timestamp: hoursAgo(i * 6),
+   216→   565→}));
+   217→   566→
+   218→   567→// ---------------------------------------------------------------------------
+   219→   568→// Integrations
+   220→   569→// ---------------------------------------------------------------------------
+   221→   570→export const mockIntegrations: Integration[] = [
+   222→   571→  { key: "supabase", label: "Supabase", status: "connected", note: "Database & auth", lastSyncAt: hoursAgo(1) },
+   223→   572→  { key: "vercel", label: "Vercel", status: "connected", note: "Deployment & hosting", lastSyncAt: hoursAgo(2) },
+   224→   573→  { key: "slack", label: "Slack", status: "configuration_required", note: "Notifications — webhook URL needed" },
+   225→   574→  { key: "email", label: "Email Provider (Resend)", status: "configuration_required", note: "Transactional email — API key needed" },
+   226→   575→  { key: "calendar", label: "Google Calendar", status: "not_connected", note: "Meeting sync" },
+   227→   576→  { key: "openai", label: "OpenAI", status: "connected", note: "AI features — call copilot (R2)", lastSyncAt: hoursAgo(1) },
+   228→   577→  { key: "twilio", label: "Twilio", status: "not_connected", note: "Telephony — call console (R2)" },
+   229→   578→  { key: "stripe", label: "Stripe", status: "configuration_required", note: "Payments — API key needed" },
+   230→   579→  { key: "google_ads", label: "Google Ads", status: "configuration_required", note: "Campaign sync — OAuth needed" },
+   231→   580→  { key: "meta_ads", label: "Meta Ads", status: "not_connected", note: "Campaign sync" },
+   232→   581→];
+   233→   582→
+   234→   583→// ---------------------------------------------------------------------------
+   235→   584→// Audit Events
+   236→   585→// ---------------------------------------------------------------------------
+   237→   586→export const mockAuditEvents: AuditEvent[] = [
+   238→   587→  { id: "aud_1", actorName: "Jamil Yakasai", action: "admin.signed_in", resourceType: "admin", ipAddress: "73.14.22.108", timestamp: hoursAgo(2) },
+   239→   588→  { id: "aud_2", actorName: "Jamil Yakasai", action: "clinic.stage_changed", resourceType: "clinic", resourceId: "cln_1", ipAddress: "73.14.22.108", timestamp: hoursAgo(48), metadata: { from: "interested", to: "proposal_sent" } },
+   240→   589→  { id: "aud_3", actorName: "Devon Marsh", action: "call.logged", resourceType: "call", resourceId: "call_5", ipAddress: "98.222.11.45", timestamp: hoursAgo(72) },
+   241→   590→  { id: "aud_4", actorName: "Jamil Yakasai", action: "deal.created", resourceType: "deal", resourceId: "deal_1", ipAddress: "73.14.22.108", timestamp: daysAgo(15) },
+   242→   591→  { id: "aud_5", actorName: "Amani Okafor", action: "settings.updated", resourceType: "settings", ipAddress: "108.45.22.91", timestamp: daysAgo(1), metadata: { section: "calling_hours" } },
+   243→   592→  { id: "aud_6", actorName: "Jamil Yakasai", action: "directory.approved", resourceType: "directory", resourceId: "dir_1", ipAddress: "73.14.22.108", timestamp: daysAgo(3) },
+   244→   593→];
+   245→   594→
+   246→   595→// ---------------------------------------------------------------------------
+   247→   596→// Notifications
+   248→   597→// ---------------------------------------------------------------------------
+   249→   598→export const mockNotifications: NotificationItem[] = [
+   250→   599→  { id: "n1", type: "followup_overdue", title: "Overdue Follow-Up", message: "Send information packet to Rocky Mountain Men's Health is overdue.", priority: "high", isRead: false, relatedEntityType: "followup", createdAt: hoursAgo(6) },
+   251→   600→  { id: "n2", type: "meeting_upcoming", title: "Meeting Tomorrow", message: "Pacific Men's Health discovery call scheduled tomorrow.", priority: "normal", isRead: false, relatedEntityType: "clinic", createdAt: hoursAgo(3) },
+   252→   601→  { id: "n3", type: "high_intent_clinic", title: "High-Intent Clinic", message: "Summit Vitality Clinic showed strong buying signals.", priority: "critical", isRead: false, relatedEntityType: "clinic", createdAt: hoursAgo(12) },
+   253→   602→  { id: "n4", type: "patient_lead_unassigned", title: "3 Unassigned Patient Leads", message: "New patient leads awaiting routing.", priority: "high", isRead: false, relatedEntityType: "patient_lead", createdAt: hoursAgo(2) },
+   254→   603→  { id: "n5", type: "campaign_budget_alert", title: "Campaign Over Budget", message: "TRT TikTok campaign has spent 96% of budget.", priority: "warning", isRead: true, relatedEntityType: "campaign", createdAt: daysAgo(1) },
+   255→   604→  { id: "n6", type: "automation_failed", title: "Automation Failed", message: "Article Published → Social Post automation failed 8 times.", priority: "high", isRead: false, relatedEntityType: "automation", createdAt: daysAgo(2) },
+   256→   605→  { id: "n7", type: "directory_application", title: "New Directory Application", message: "Gulf Coast Wellness Center submitted a directory application.", priority: "normal", isRead: true, relatedEntityType: "directory", createdAt: daysAgo(3) },
+   257→   606→  { id: "n8", type: "integration_disconnected", title: "Slack Integration Needs Config", message: "Slack webhook URL is not configured.", priority: "warning", isRead: true, createdAt: daysAgo(5) },
+   258→   607→];
+   259→   608→
+   260→   609→// ---------------------------------------------------------------------------
+   261→   610→// Activity Feed
+   262→   611→// ---------------------------------------------------------------------------
+   263→   612→export const mockActivities: ActivityEvent[] = [
+   264→   613→  { id: "act_1", entityType: "clinic", entityId: "cln_1", action: "stage_changed", summary: "Stage changed: Interested → Proposal Sent — Summit Vitality Clinic", adminName: "Jamil Yakasai", timestamp: hoursAgo(48), metadata: { from: "interested", to: "proposal_sent" } },
+   265→   614→  { id: "act_2", entityType: "call", entityId: "call_3", action: "call_logged", summary: "Call logged — Connected (DM reached) — Cardinal Performance Medicine", adminName: "Jamil Yakasai", timestamp: hoursAgo(24) },
+   266→   615→  { id: "act_3", entityType: "deal", entityId: "deal_1", action: "deal_created", summary: "Deal created — Summit Vitality — Annual Partnership", adminName: "Jamil Yakasai", timestamp: daysAgo(15) },
+   267→   616→  { id: "act_4", entityType: "followup", entityId: "fu_4", action: "followup_created", summary: "Follow-up created — Prepare proposal for Evergreen", adminName: "Devon Marsh", timestamp: daysAgo(3) },
+   268→   617→  { id: "act_5", entityType: "clinic", entityId: "cln_5", action: "contact_added", summary: "Contact added — Vanessa Reyes, Operations Manager — Gulf Coast Wellness", adminName: "Devon Marsh", timestamp: daysAgo(5) },
+   269→   618→  { id: "act_6", entityType: "directory", entityId: "dir_1", action: "directory_status_changed", summary: "Directory status → Published — Summit Vitality Clinic", adminName: "Jamil Yakasai", timestamp: daysAgo(3) },
+   270→   619→  { id: "act_7", entityType: "clinic", entityId: "cln_1", action: "clinic_updated", summary: "Clinic updated — Summit Vitality Clinic", adminName: "Jamil Yakasai", timestamp: hoursAgo(48) },
+   271→   620→  { id: "act_8", entityType: "patient_lead", entityId: "pl_1", action: "patient_lead_created", summary: "New patient lead — James Wilson (TRT interest)", adminName: "system", timestamp: hoursAgo(1) },
+   272→   621→];
+   273→   622→

@@ -1,0 +1,622 @@
+     1→     1→/**
+     2→     2→ * Novalyte Admin — Centralized Mock Data
+     3→     3→ *
+     4→     4→ * All mock data lives here. Repositories read from these arrays when
+     5→     5→ * appConfig.mockMode is true. Replace with real API calls when backend
+     6→     6→ * services are connected.
+     7→     7→ */
+     8→     8→import type {
+     9→     9→  AdminMember, Clinic, ClinicContact, CallSession, FollowUpTask, Deal,
+    10→    10→  DirectoryProfile, PatientLead, ClinicMatch, MarketData, Campaign,
+    11→    11→  Professional, JobListing, JobApplication, Product, Order, Article,
+    12→    12→  Automation, AIUsageRecord, Integration, AuditEvent, NotificationItem,
+    13→    13→  ActivityEvent,
+    14→    14→} from "@/types";
+    15→    15→
+    16→    16→const now = new Date();
+    17→    17→const daysAgo = (n: number) => new Date(now.getTime() - n * 86400000).toISOString();
+    18→    18→const daysFromNow = (n: number) => new Date(now.getTime() + n * 86400000).toISOString();
+    19→    19→const hoursAgo = (n: number) => new Date(now.getTime() - n * 3600000).toISOString();
+    20→    20→const hoursFromNow = (n: number) => new Date(now.getTime() + n * 3600000).toISOString();
+    21→    21→
+    22→    22→// ---------------------------------------------------------------------------
+    23→    23→// Admins
+    24→    24→// ---------------------------------------------------------------------------
+    25→    25→export const mockAdmins: AdminMember[] = [
+    26→    26→  { id: "adm_1", email: "founder@novalyte.io", role: "founder", status: "active", firstName: "Jamil", lastName: "Yakasai", lastLoginAt: hoursAgo(2), createdAt: daysAgo(120) },
+    27→    27→  { id: "adm_2", email: "ops@novalyte.io", role: "admin", status: "active", firstName: "Amani", lastName: "Okafor", lastLoginAt: daysAgo(1), createdAt: daysAgo(90) },
+    28→    28→  { id: "adm_3", email: "sales@novalyte.io", role: "sales", status: "active", firstName: "Devon", lastName: "Marsh", lastLoginAt: daysAgo(3), createdAt: daysAgo(60) },
+    29→    29→];
+    30→    30→
+    31→    31→// ---------------------------------------------------------------------------
+    32→    32→// Clinics + Contacts
+    33→    33→// ---------------------------------------------------------------------------
+    34→    34→function makeContact(partial: Partial<ClinicContact> & { firstName: string; lastName: string }): ClinicContact {
+    35→    35→  return {
+    36→    36→    id: `ct_${Math.random().toString(36).slice(2, 9)}`,
+    37→    37→    clinicId: "",
+    38→    38→    contactType: "general_contact",
+    39→    39→    preferredContactMethod: "phone",
+    40→    40→    isDecisionMaker: false,
+    41→    41→    isPrimary: false,
+    42→    42→    consentStatus: "unknown",
+    43→    43→    archived: false,
+    44→    44→    ...partial,
+    45→    45→  };
+    46→    46→}
+    47→    47→
+    48→    48→interface SeedClinic {
+    49→    49→  name: string; city: string; state: string; zip: string; timezone: string;
+    50→    50→  website?: string; phone?: string; email?: string; clinicType?: string;
+    51→    51→  telehealth?: boolean; locations?: number; providers?: number;
+    52→    52→  stage: string; priority: string; readiness: number; opportunity?: number;
+    53→    53→  lastContactedDaysAgo?: number; nextAction?: string; nextActionDays?: number;
+    54→    54→  callAttempts?: number; interested?: boolean; paid?: boolean; dnc?: boolean;
+    55→    55→  directoryStatus?: string; verification?: string; profileCompletion?: number;
+    56→    56→  estimatedValue?: number; owner?: string; services: string[];
+    57→    57→  contacts: Partial<ClinicContact> & { firstName: string; lastName: string }[];
+    58→    58→  lat?: number; lng?: number; tags?: string[]; source?: string;
+    59→    59→}
+    60→    60→
+    61→    61→const clinicSeeds: SeedClinic[] = [
+    62→    62→  {
+    63→    63→    name: "Summit Vitality Clinic", city: "Austin", state: "TX", zip: "78701", timezone: "America/Chicago",
+    64→    64→    website: "https://summitvitality.com", phone: "(512) 555-0142", email: "info@summitvitality.com",
+    65→    65→    clinicType: "group", telehealth: true, locations: 3, providers: 5,
+    66→    66→    stage: "proposal_sent", priority: "critical", readiness: 88, opportunity: 92,
+    67→    67→    lastContactedDaysAgo: 2, nextAction: "Follow up on proposal", nextActionDays: 0,
+    68→    68→    callAttempts: 4, interested: true, directoryStatus: "approved", verification: "verified",
+    69→    69→    profileCompletion: 92, estimatedValue: 96000, owner: "Jamil Yakasai",
+    70→    70→    services: ["trt", "glp-1", "peptide-therapy", "iv-therapy"],
+    71→    71→    tags: ["high-value", "expansion"], source: "manual_research",
+    72→    72→    contacts: [
+    73→    73→      { firstName: "Marcus", lastName: "Cole", title: "Medical Director", contactType: "medical_director", email: "mcole@summitvitality.com", directPhone: "(512) 555-0143", isDecisionMaker: true, isPrimary: true },
+    74→    74→      { firstName: "Priya", lastName: "Shah", title: "Practice Manager", contactType: "practice_manager", email: "priya@summitvitality.com", directPhone: "(512) 555-0144" },
+    75→    75→    ],
+    76→    76→  },
+    77→    77→  {
+    78→    78→    name: "Pacific Men's Health", city: "Los Angeles", state: "CA", zip: "90024", timezone: "America/Los_Angeles",
+    79→    79→    website: "https://pacificmenshealth.com", phone: "(310) 555-0198", email: "hello@pacificmenshealth.com",
+    80→    80→    clinicType: "group", telehealth: true, locations: 2, providers: 4,
+    81→    81→    stage: "meeting_booked", priority: "high", readiness: 81, opportunity: 78,
+    82→    82→    lastContactedDaysAgo: 4, nextAction: "Discovery call with founder", nextActionDays: 1,
+    83→    83→    callAttempts: 3, interested: true, directoryStatus: "approved", verification: "pending",
+    84→    84→    profileCompletion: 70, estimatedValue: 54000, owner: "Jamil Yakasai",
+    85→    85→    services: ["trt", "ed-care", "sexual-wellness", "peptide-therapy"],
+    86→    86→    contacts: [{ firstName: "David", lastName: "Lin", title: "Founder", contactType: "founder", email: "david@pacificmenshealth.com", mobilePhone: "(310) 555-0199", isDecisionMaker: true, isPrimary: true }],
+    87→    87→  },
+    88→    88→  {
+    89→    89→    name: "Evergreen Hormone Clinic", city: "Seattle", state: "WA", zip: "98101", timezone: "America/Los_Angeles",
+    90→    90→    website: "https://evergreenhormone.com", phone: "(206) 555-0121", email: "care@evergreenhormone.com",
+    91→    91→    clinicType: "private_practice", telehealth: true,
+    92→    92→    stage: "interested", priority: "high", readiness: 74, opportunity: 68,
+    93→    93→    lastContactedDaysAgo: 6, nextAction: "Send proposal", nextActionDays: 2,
+    94→    94→    callAttempts: 5, interested: true, directoryStatus: "unclaimed", verification: "pending",
+    95→    95→    profileCompletion: 35, estimatedValue: 42000, owner: "Devon Marsh",
+    96→    96→    services: ["hormone-optimization", "trt", "longevity"],
+    97→    97→    contacts: [
+    98→    98→      { firstName: "Rachel", lastName: "Owens", title: "Owner / NP", contactType: "owner", email: "rachel@evergreenhormone.com", directPhone: "(206) 555-0122", isDecisionMaker: true, isPrimary: true },
+    99→    99→      { firstName: "Tara", lastName: "Mills", title: "Front Desk", contactType: "front_desk", directPhone: "(206) 555-0121" },
+   100→   100→    ],
+   101→   101→  },
+   102→   102→  {
+   103→   103→    name: "Cardinal Performance Medicine", city: "Columbus", state: "OH", zip: "43215", timezone: "America/New_York",
+   104→   104→    website: "https://cardinalperformance.com", phone: "(614) 555-0177",
+   105→   105→    clinicType: "private_practice", telehealth: false, providers: 3,
+   106→   106→    stage: "pilot_active", priority: "critical", readiness: 90, opportunity: 95,
+   107→   107→    lastContactedDaysAgo: 1, nextAction: "Check pilot metrics", nextActionDays: 2,
+   108→   108→    callAttempts: 6, interested: true, paid: true, directoryStatus: "published", verification: "verified",
+   109→   109→    profileCompletion: 98, estimatedValue: 120000, owner: "Jamil Yakasai",
+   110→   110→    services: ["trt", "performance-recovery", "peptide-therapy", "iv-therapy"],
+   111→   111→    contacts: [{ firstName: "Andre", lastName: "Brooks", title: "Medical Director", contactType: "medical_director", email: "andre@cardinalperformance.com", directPhone: "(614) 555-0178", isDecisionMaker: true, isPrimary: true }],
+   112→   112→  },
+   113→   113→  {
+   114→   114→    name: "Gulf Coast Wellness Center", city: "Houston", state: "TX", zip: "77002", timezone: "America/Chicago",
+   115→   115→    website: "https://gulfcoastwellness.com", phone: "(713) 555-0150", email: "admin@gulfcoastwellness.com",
+   116→   116→    clinicType: "group", telehealth: true, locations: 4, providers: 8,
+   117→   117→    stage: "decision_maker_reached", priority: "high", readiness: 79, opportunity: 82,
+   118→   118→    lastContactedDaysAgo: 3, nextAction: "Follow up with operations manager", nextActionDays: 1,
+   119→   119→    callAttempts: 3, interested: true, directoryStatus: "unclaimed", verification: "pending",
+   120→   120→    profileCompletion: 40, estimatedValue: 60000, owner: "Devon Marsh",
+   121→   121→    services: ["medical-weight-loss", "glp-1", "iv-therapy", "mental-wellness"],
+   122→   122→    contacts: [
+   123→   123→      { firstName: "Vanessa", lastName: "Reyes", title: "Operations Manager", contactType: "operations_manager", email: "vanessa@gulfcoastwellness.com", directPhone: "(713) 555-0151", isDecisionMaker: true, isPrimary: true },
+   124→   124→      { firstName: "Greg", lastName: "Patterson", title: "Owner", contactType: "owner", email: "greg@gulfcoastwellness.com" },
+   125→   125→    ],
+   126→   126→  },
+   127→   127→  {
+   128→   128→    name: "Northstar TRT Clinic", city: "Minneapolis", state: "MN", zip: "55401", timezone: "America/Chicago",
+   129→   129→    website: "https://northstartrt.com", phone: "(612) 555-0166",
+   130→   130→    clinicType: "private_practice", telehealth: true,
+   131→   131→    stage: "ready_to_call", priority: "high", readiness: 72, opportunity: 65,
+   132→   132→    callAttempts: 0, directoryStatus: "imported", verification: "pending",
+   133→   133→    profileCompletion: 20, estimatedValue: 0, owner: "Devon Marsh",
+   134→   134→    services: ["trt", "hormone-optimization"],
+   135→   135→    contacts: [{ firstName: "Unknown", lastName: "Decision Maker", contactType: "general_contact", directPhone: "(612) 555-0166" }],
+   136→   136→  },
+   137→   137→  {
+   138→   138→    name: "Meridian Aesthetics & Wellness", city: "Phoenix", state: "AZ", zip: "85012", timezone: "America/Phoenix",
+   139→   139→    website: "https://meridianaesthetics.com", phone: "(602) 555-0188", email: "info@meridianaesthetics.com",
+   140→   140→    clinicType: "group", telehealth: false, locations: 2,
+   141→   141→    stage: "ready_to_call", priority: "normal", readiness: 66, opportunity: 55,
+   142→   142→    callAttempts: 0, directoryStatus: "imported", verification: "pending",
+   143→   143→    profileCompletion: 15, estimatedValue: 0, owner: "Devon Marsh",
+   144→   144→    services: ["hair-restoration", "iv-therapy", "sexual-wellness", "peptide-therapy"],
+   145→   145→    contacts: [{ firstName: "Info", lastName: "Desk", contactType: "front_desk", email: "info@meridianaesthetics.com", directPhone: "(602) 555-0188" }],
+   146→   146→  },
+   147→   147→  {
+   148→   148→    name: "Brightside Longevity Clinic", city: "Miami", state: "FL", zip: "33101", timezone: "America/New_York",
+   149→   149→    website: "https://brightsidelongevity.com", phone: "(305) 555-0133", email: "contact@brightsidelongevity.com",
+   150→   150→    clinicType: "private_practice", telehealth: true,
+   151→   151→    stage: "attempted", priority: "high", readiness: 70, opportunity: 72,
+   152→   152→    lastContactedDaysAgo: 1, nextAction: "Retry call — DM unavailable", nextActionDays: 0,
+   153→   153→    callAttempts: 2, directoryStatus: "imported", verification: "pending",
+   154→   154→    profileCompletion: 25, estimatedValue: 0, owner: "Jamil Yakasai",
+   155→   155→    services: ["longevity", "trt", "peptide-therapy", "preventive-care"],
+   156→   156→    contacts: [{ firstName: "Elena", lastName: "Castro", title: "Owner", contactType: "owner", email: "elena@brightsidelongevity.com", directPhone: "(305) 555-0134", isDecisionMaker: true, isPrimary: true }],
+   157→   157→  },
+   158→   158→  {
+   159→   159→    name: "Rocky Mountain Men's Health", city: "Denver", state: "CO", zip: "80202", timezone: "America/Denver",
+   160→   160→    website: "https://rmmenshealth.com", phone: "(303) 555-0144",
+   161→   161→    clinicType: "group", telehealth: true, locations: 3,
+   162→   162→    stage: "follow_up_required", priority: "high", readiness: 77, opportunity: 74,
+   163→   163→    lastContactedDaysAgo: 8, nextAction: "Send information packet", nextActionDays: -1,
+   164→   164→    callAttempts: 3, interested: true, directoryStatus: "unclaimed", verification: "pending",
+   165→   165→    profileCompletion: 40, estimatedValue: 48000, owner: "Devon Marsh",
+   166→   166→    services: ["trt", "ed-care", "hormone-optimization"],
+   167→   167→    contacts: [{ firstName: "Tom", lastName: "Becker", title: "Practice Manager", contactType: "practice_manager", email: "tom@rmmenshealth.com", directPhone: "(303) 555-0145", isDecisionMaker: true, isPrimary: true }],
+   168→   168→  },
+   169→   169→  {
+   170→   170→    name: "Coastal Medical Weight Loss", city: "Charleston", state: "SC", zip: "29401", timezone: "America/New_York",
+   171→   171→    website: "https://coastalweightloss.com", phone: "(843) 555-0190", email: "team@coastalweightloss.com",
+   172→   172→    clinicType: "private_practice", telehealth: true,
+   173→   173→    stage: "connected", priority: "normal", readiness: 64, opportunity: 58,
+   174→   174→    lastContactedDaysAgo: 2, nextAction: "Qualify decision-maker", nextActionDays: 2,
+   175→   175→    callAttempts: 2, directoryStatus: "imported", verification: "pending",
+   176→   176→    profileCompletion: 18, estimatedValue: 0, owner: "Devon Marsh",
+   177→   177→    services: ["medical-weight-loss", "glp-1"],
+   178→   178→    contacts: [{ firstName: "Dana", lastName: "Whitfield", title: "Front Desk", contactType: "front_desk", directPhone: "(843) 555-0190" }],
+   179→   179→  },
+   180→   180→  {
+   181→   181→    name: "Apex IV & Recovery", city: "Las Vegas", state: "NV", zip: "89101", timezone: "America/Los_Angeles",
+   182→   182→    website: "https://apexivrecovery.com", phone: "(702) 555-0125",
+   183→   183→    clinicType: "group", telehealth: false, locations: 2,
+   184→   184→    stage: "research_complete", priority: "normal", readiness: 58, opportunity: 52,
+   185→   185→    callAttempts: 0, directoryStatus: "imported", verification: "pending",
+   186→   186→    profileCompletion: 12, estimatedValue: 0, owner: "Devon Marsh",
+   187→   187→    services: ["iv-therapy", "performance-recovery", "peptide-therapy"],
+   188→   188→    contacts: [],
+   189→   189→  },
+   190→   190→  {
+   191→   191→    name: "Lone Star Vitality", city: "Dallas", state: "TX", zip: "75201", timezone: "America/Chicago",
+   192→   192→    website: "https://lonestarvitality.com", phone: "(214) 555-0119",
+   193→   193→    clinicType: "private_practice", telehealth: true,
+   194→   194→    stage: "needs_research", priority: "normal", readiness: 40, opportunity: 35,
+   195→   195→    callAttempts: 0, directoryStatus: "imported", verification: "pending",
+   196→   196→    profileCompletion: 8, estimatedValue: 0, owner: "Devon Marsh",
+   197→   197→    services: ["trt", "hormone-optimization"],
+   198→   198→    contacts: [],
+   199→   199→  },
+   200→   200→  {
+   201→   201→    name: "Harbor Wellness Collective", city: "Portland", state: "OR", zip: "97201", timezone: "America/Los_Angeles",
+   202→   202→    website: "https://harborwellnessco.com", phone: "(503) 555-0157",
+   203→   203→    clinicType: "private_practice", telehealth: true,
+   204→   204→    stage: "imported", priority: "low", readiness: 30, opportunity: 25,
+   205→   205→    callAttempts: 0, directoryStatus: "imported", verification: "pending",
+   206→   206→    profileCompletion: 5, estimatedValue: 0, owner: "Devon Marsh",
+   207→   207→    services: ["mental-wellness", "iv-therapy"],
+   208→   208→    contacts: [],
+   209→   209→  },
+   210→   210→  {
+   211→   211→    name: "Summit Edge Anti-Aging", city: "Salt Lake City", state: "UT", zip: "84101", timezone: "America/Denver",
+   212→   212→    website: "https://summitedgeantiaging.com", phone: "(801) 555-0132",
+   213→   213→    clinicType: "private_practice", telehealth: false,
+   214→   214→    stage: "not_interested", priority: "low", readiness: 52, opportunity: 30,
+   215→   215→    lastContactedDaysAgo: 10, callAttempts: 2, directoryStatus: "imported", verification: "pending",
+   216→   216→    profileCompletion: 22, estimatedValue: 0, owner: "Devon Marsh",
+   217→   217→    services: ["hormone-optimization", "longevity"],
+   218→   218→    contacts: [{ firstName: "Karen", lastName: "Bishop", title: "Owner", contactType: "owner", directPhone: "(801) 555-0132", isDecisionMaker: true, isPrimary: true }],
+   219→   219→  },
+   220→   220→  {
+   221→   221→    name: "Bluegrass Men's Clinic", city: "Lexington", state: "KY", zip: "40507", timezone: "America/New_York",
+   222→   222→    website: "https://bluegrassmensclinic.com", phone: "(859) 555-0148",
+   223→   223→    clinicType: "private_practice", telehealth: true,
+   224→   224→    stage: "do_not_call", priority: "low", readiness: 20, opportunity: 5,
+   225→   225→    lastContactedDaysAgo: 20, callAttempts: 1, dnc: true, directoryStatus: "archived", verification: "pending",
+   226→   226→    profileCompletion: 10, estimatedValue: 0, owner: "Devon Marsh",
+   227→   227→    services: ["trt", "ed-care"],
+   228→   228→    contacts: [],
+   229→   229→  },
+   230→   230→  {
+   231→   231→    name: "Pioneer Health & Hormone", city: "Oklahoma City", state: "OK", zip: "73102", timezone: "America/Chicago",
+   232→   232→    website: "https://pioneerhealthhormone.com", phone: "(405) 555-0163", email: "office@pioneerhealthhormone.com",
+   233→   233→    clinicType: "private_practice", telehealth: true,
+   234→   234→    stage: "paid", priority: "normal", readiness: 92, opportunity: 90,
+   235→   235→    lastContactedDaysAgo: 5, nextAction: "Quarterly check-in", nextActionDays: 30,
+   236→   236→    callAttempts: 8, interested: true, paid: true, directoryStatus: "published", verification: "verified",
+   237→   237→    profileCompletion: 95, estimatedValue: 48000, owner: "Jamil Yakasai",
+   238→   238→    services: ["trt", "hormone-optimization", "peptide-therapy"],
+   239→   239→    contacts: [{ firstName: "Henry", lastName: "Walsh", title: "Owner", contactType: "owner", email: "henry@pioneerhealthhormone.com", directPhone: "(405) 555-0164", isDecisionMaker: true, isPrimary: true }],
+   240→   240→  },
+   241→   241→];
+   242→   242→
+   243→   243→export const mockClinics: Clinic[] = clinicSeeds.map((s, i) => {
+   244→   244→  const id = `cln_${i + 1}`;
+   245→   245→  const contacts = s.contacts.map((c) => makeContact({ ...c, clinicId: id }));
+   246→   246→  return {
+   247→   247→    id,
+   248→   248→    name: s.name,
+   249→   249→    legalName: s.name + " LLC",
+   250→   250→    website: s.website,
+   251→   251→    primaryPhone: s.phone,
+   252→   252→    generalEmail: s.email,
+   253→   253→    address: `${100 + i} Main St`,
+   254→   254→    city: s.city,
+   255→   255→    state: s.state,
+   256→   256→    zip: s.zip,
+   257→   257→    country: "US",
+   258→   258→    latitude: 25 + i * 1.5,
+   259→   259→    longitude: -80 - i * 1.2,
+   260→   260→    timezone: s.timezone,
+   261→   261→    numberOfLocations: s.locations ?? 1,
+   262→   262→    numberOfProviders: s.providers,
+   263→   263→    clinicType: (s.clinicType as Clinic["clinicType"]) ?? "private_practice",
+   264→   264→    telehealth: s.telehealth ?? false,
+   265→   265→    operatingStatus: "operating",
+   266→   266→    pipelineStage: s.stage as Clinic["pipelineStage"],
+   267→   267→    priority: s.priority as Clinic["priority"],
+   268→   268→    readinessScore: s.readiness,
+   269→   269→    opportunityScore: s.opportunity,
+   270→   270→    leadScore: Math.round(s.readiness * 0.8),
+   271→   271→    callAttempts: s.callAttempts ?? 0,
+   272→   272→    lastContactedAt: s.lastContactedDaysAgo != null ? daysAgo(s.lastContactedDaysAgo) : undefined,
+   273→   273→    nextAction: s.nextAction,
+   274→   274→    nextActionAt: s.nextActionDays != null ? daysFromNow(s.nextActionDays) : undefined,
+   275→   275→    interested: s.interested ?? false,
+   276→   276→    paid: s.paid ?? false,
+   277→   277→    doNotCall: s.dnc ?? false,
+   278→   278→    archived: false,
+   279→   279→    directoryStatus: (s.directoryStatus ?? "imported") as Clinic["directoryStatus"],
+   280→   280→    verificationStatus: (s.verification ?? "pending") as Clinic["verificationStatus"],
+   281→   281→    profileCompletion: s.profileCompletion ?? 0,
+   282→   282→    estimatedValue: s.estimatedValue ?? 0,
+   283→   283→    owner: s.owner,
+   284→   284→    tags: s.tags ?? [],
+   285→   285→    source: s.source ?? "import",
+   286→   286→    services: s.services,
+   287→   287→    contacts,
+   288→   288→    dateImported: daysAgo(30 - i),
+   289→   289→    createdAt: daysAgo(30 - i),
+   290→   290→    updatedAt: daysAgo(Math.max(0, (s.lastContactedDaysAgo ?? 1) - 1)),
+   291→   291→  };
+   292→   292→});
+   293→   293→
+   294→   294→// ---------------------------------------------------------------------------
+   295→   295→// Call Sessions
+   296→   296→// ---------------------------------------------------------------------------
+   297→   297→export const mockCalls: CallSession[] = [
+   298→   298→  { id: "call_1", clinicId: "cln_1", clinicName: "Summit Vitality Clinic", contactName: "Marcus Cole", startedAt: hoursAgo(48), endedAt: hoursAgo(48), durationSec: 1320, direction: "outbound", attemptNumber: 4, answered: true, decisionMakerReached: true, outcome: "connected", interestLevel: "hot", objections: [], notes: "Reviewed proposal terms, asked for patient demand report.", nextAction: "Send patient demand update", adminName: "Jamil Yakasai" },
+   299→   299→  { id: "call_2", clinicId: "cln_2", clinicName: "Pacific Men's Health", contactName: "David Lin", startedAt: hoursAgo(96), endedAt: hoursAgo(96), durationSec: 1800, direction: "outbound", attemptNumber: 3, answered: true, decisionMakerReached: true, outcome: "meeting_booked", interestLevel: "hot", objections: [], notes: "Booked discovery call.", adminName: "Jamil Yakasai" },
+   300→   300→  { id: "call_3", clinicId: "cln_4", clinicName: "Cardinal Performance Medicine", contactName: "Andre Brooks", startedAt: hoursAgo(24), endedAt: hoursAgo(24), durationSec: 720, direction: "outbound", attemptNumber: 6, answered: true, decisionMakerReached: true, outcome: "connected", interestLevel: "hot", objections: [], notes: "Pilot going well, +18% inquiries.", adminName: "Jamil Yakasai" },
+   301→   301→  { id: "call_4", clinicId: "cln_8", clinicName: "Brightside Longevity Clinic", contactName: "Elena Castro", startedAt: hoursAgo(24), durationSec: 180, direction: "outbound", attemptNumber: 2, answered: true, decisionMakerReached: false, outcome: "decision_maker_unavailable", interestLevel: "unknown", objections: [], notes: "Front desk said Elena traveling.", adminName: "Jamil Yakasai" },
+   302→   302→  { id: "call_5", clinicId: "cln_9", clinicName: "Rocky Mountain Men's Health", contactName: "Tom Becker", startedAt: hoursAgo(192), durationSec: 660, direction: "outbound", attemptNumber: 3, answered: true, decisionMakerReached: true, outcome: "call_back_requested", interestLevel: "warm", objections: ["Want to think about it"], notes: "Wants info before next talk.", adminName: "Devon Marsh" },
+   303→   303→  { id: "call_6", clinicId: "cln_3", clinicName: "Evergreen Hormone Clinic", contactName: "Rachel Owens", startedAt: hoursAgo(144), durationSec: 1500, direction: "outbound", attemptNumber: 5, answered: true, decisionMakerReached: true, outcome: "interested", interestLevel: "hot", objections: [], notes: "Ready for proposal.", adminName: "Devon Marsh" },
+   304→   304→  { id: "call_7", clinicId: "cln_14", clinicName: "Summit Edge Anti-Aging", contactName: "Karen Bishop", startedAt: hoursAgo(240), durationSec: 300, direction: "outbound", attemptNumber: 2, answered: true, decisionMakerReached: true, outcome: "not_interested", interestLevel: "cold", objections: ["Marketing budget frozen", "Already has agency"], notes: "Budget frozen.", adminName: "Devon Marsh" },
+   305→   305→  { id: "call_8", clinicId: "cln_5", clinicName: "Gulf Coast Wellness Center", contactName: "Vanessa Reyes", startedAt: hoursAgo(72), durationSec: 1140, direction: "outbound", attemptNumber: 3, answered: true, decisionMakerReached: true, outcome: "connected", interestLevel: "warm", objections: [], notes: "Vanessa interested, will discuss with owner.", adminName: "Devon Marsh" },
+   306→   306→];
+   307→   307→
+   308→   308→// ---------------------------------------------------------------------------
+   309→   309→// Follow-up Tasks
+   310→   310→// ---------------------------------------------------------------------------
+   311→   311→export const mockFollowUps: FollowUpTask[] = [
+   312→   312→  { id: "fu_1", title: "Send patient demand report to Marcus", clinicId: "cln_1", clinicName: "Summit Vitality Clinic", taskType: "patient_demand_update", priority: "critical", dueDate: daysFromNow(0), status: "open", notes: "He asked for ZIP-level demand data.", assignedAdminName: "Jamil Yakasai", createdAt: daysAgo(2) },
+   313→   313→  { id: "fu_2", title: "Proposal follow-up call", clinicId: "cln_1", clinicName: "Summit Vitality Clinic", taskType: "proposal_follow_up", priority: "critical", dueDate: daysFromNow(3), status: "open", assignedAdminName: "Jamil Yakasai", createdAt: daysAgo(2) },
+   314→   314→  { id: "fu_3", title: "Discovery call with David Lin", clinicId: "cln_2", clinicName: "Pacific Men's Health", taskType: "meeting", priority: "high", dueDate: daysFromNow(1), status: "open", assignedAdminName: "Jamil Yakasai", createdAt: daysAgo(4) },
+   315→   315→  { id: "fu_4", title: "Prepare proposal for Evergreen", clinicId: "cln_3", clinicName: "Evergreen Hormone Clinic", taskType: "prepare_proposal", priority: "high", dueDate: daysFromNow(2), status: "in_progress", assignedAdminName: "Devon Marsh", createdAt: daysAgo(3) },
+   316→   316→  { id: "fu_5", title: "Send information packet to Tom", clinicId: "cln_9", clinicName: "Rocky Mountain Men's Health", taskType: "send_information", priority: "high", dueDate: daysAgo(1), status: "open", notes: "OVERDUE — promised by yesterday.", assignedAdminName: "Devon Marsh", createdAt: daysAgo(5) },
+   317→   317→  { id: "fu_6", title: "Retry call to Elena Castro", clinicId: "cln_8", clinicName: "Brightside Longevity Clinic", taskType: "phone_call", priority: "high", dueDate: daysFromNow(0), status: "open", assignedAdminName: "Jamil Yakasai", createdAt: daysAgo(1) },
+   318→   318→  { id: "fu_7", title: "Review pilot performance report", clinicId: "cln_4", clinicName: "Cardinal Performance Medicine", taskType: "general_task", priority: "high", dueDate: daysFromNow(2), status: "open", assignedAdminName: "Jamil Yakasai", createdAt: daysAgo(1) },
+   319→   319→  { id: "fu_8", title: "Call Vanessa re: owner discussion", clinicId: "cln_5", clinicName: "Gulf Coast Wellness Center", taskType: "phone_call", priority: "high", dueDate: daysFromNow(1), status: "open", assignedAdminName: "Devon Marsh", createdAt: daysAgo(3) },
+   320→   320→  { id: "fu_9", title: "Directory claim reminder", clinicId: "cln_3", clinicName: "Evergreen Hormone Clinic", taskType: "send_directory_link", priority: "normal", dueDate: daysFromNow(5), status: "open", assignedAdminName: "Devon Marsh", createdAt: daysAgo(2) },
+   321→   321→  { id: "fu_10", title: "Quarterly check-in with Henry", clinicId: "cln_16", clinicName: "Pioneer Health & Hormone", taskType: "phone_call", priority: "normal", dueDate: daysFromNow(30), status: "open", assignedAdminName: "Jamil Yakasai", createdAt: daysAgo(5) },
+   322→   322→  { id: "fu_11", title: "Completed: Sent directory link to Cardinal", clinicId: "cln_4", clinicName: "Cardinal Performance Medicine", taskType: "send_directory_link", priority: "normal", dueDate: daysAgo(7), status: "completed", completedAt: daysAgo(6), assignedAdminName: "Jamil Yakasai", createdAt: daysAgo(10) },
+   323→   323→];
+   324→   324→
+   325→   325→// ---------------------------------------------------------------------------
+   326→   326→// Deals
+   327→   327→// ---------------------------------------------------------------------------
+   328→   328→export const mockDeals: Deal[] = [
+   329→   329→  { id: "deal_1", name: "Summit Vitality — Annual Partnership", clinicId: "cln_1", clinicName: "Summit Vitality Clinic", contactName: "Marcus Cole", offer: "Directory Premium + Lead Gen Pilot", ownerName: "Jamil Yakasai", stage: "proposal_sent", estimatedMonthlyValue: 8000, setupFee: 5000, performanceFee: 0, estimatedTotalValue: 96000, probability: 65, expectedCloseDate: daysFromNow(14), pilotStartDate: daysFromNow(21), contractStatus: "drafting", paymentStatus: "none", createdAt: daysAgo(15), updatedAt: daysAgo(2) },
+   330→   330→  { id: "deal_2", name: "Pacific Men's Health — Directory + Leads", clinicId: "cln_2", clinicName: "Pacific Men's Health", contactName: "David Lin", offer: "Directory Premium", ownerName: "Jamil Yakasai", stage: "discovery_completed", estimatedMonthlyValue: 4500, setupFee: 0, performanceFee: 0, estimatedTotalValue: 54000, probability: 35, expectedCloseDate: daysFromNow(28), contractStatus: "none", paymentStatus: "none", createdAt: daysAgo(10), updatedAt: daysAgo(4) },
+   331→   331→  { id: "deal_3", name: "Evergreen — Lead Gen + Directory", clinicId: "cln_3", clinicName: "Evergreen Hormone Clinic", contactName: "Rachel Owens", offer: "Directory Premium + Lead Pilot", ownerName: "Devon Marsh", stage: "proposal_requested", estimatedMonthlyValue: 3500, setupFee: 1500, performanceFee: 0, estimatedTotalValue: 42000, probability: 40, expectedCloseDate: daysFromNow(30), contractStatus: "none", paymentStatus: "none", createdAt: daysAgo(8), updatedAt: daysAgo(3) },
+   332→   332→  { id: "deal_4", name: "Cardinal — Pilot to Annual", clinicId: "cln_4", clinicName: "Cardinal Performance Medicine", contactName: "Andre Brooks", offer: "Lead Gen Pilot → Annual", ownerName: "Jamil Yakasai", stage: "active", estimatedMonthlyValue: 10000, setupFee: 3000, performanceFee: 0, estimatedTotalValue: 120000, probability: 95, expectedCloseDate: daysFromNow(45), pilotStartDate: daysAgo(10), contractStatus: "signed", paymentStatus: "paid", createdAt: daysAgo(40), updatedAt: daysAgo(1) },
+   333→   333→  { id: "deal_5", name: "Gulf Coast — Multi-location Rollout", clinicId: "cln_5", clinicName: "Gulf Coast Wellness Center", contactName: "Vanessa Reyes", offer: "Directory + Lead Gen (4 locations)", ownerName: "Devon Marsh", stage: "qualified", estimatedMonthlyValue: 5000, setupFee: 4000, performanceFee: 0, estimatedTotalValue: 60000, probability: 35, expectedCloseDate: daysFromNow(35), contractStatus: "none", paymentStatus: "none", createdAt: daysAgo(7), updatedAt: daysAgo(3) },
+   334→   334→  { id: "deal_6", name: "Pioneer — Annual Partnership", clinicId: "cln_16", clinicName: "Pioneer Health & Hormone", contactName: "Henry Walsh", offer: "Directory Premium + Lead Gen", ownerName: "Jamil Yakasai", stage: "active", estimatedMonthlyValue: 4000, setupFee: 0, performanceFee: 0, estimatedTotalValue: 48000, probability: 100, expectedCloseDate: daysAgo(5), contractStatus: "signed", paymentStatus: "paid", createdAt: daysAgo(60), updatedAt: daysAgo(5) },
+   335→   335→  { id: "deal_7", name: "Rocky Mountain — Directory Trial", clinicId: "cln_9", clinicName: "Rocky Mountain Men's Health", contactName: "Tom Becker", offer: "Directory Basic", ownerName: "Devon Marsh", stage: "negotiation", estimatedMonthlyValue: 2000, setupFee: 1000, performanceFee: 0, estimatedTotalValue: 24000, probability: 50, expectedCloseDate: daysFromNow(21), contractStatus: "reviewing", paymentStatus: "none", createdAt: daysAgo(12), updatedAt: daysAgo(8) },
+   336→   336→  { id: "deal_8", name: "Brightside — Longevity Package", clinicId: "cln_8", clinicName: "Brightside Longevity Clinic", contactName: "Elena Castro", offer: "Directory Premium", ownerName: "Jamil Yakasai", stage: "opportunity_identified", estimatedMonthlyValue: 3000, setupFee: 0, performanceFee: 0, estimatedTotalValue: 36000, probability: 20, expectedCloseDate: daysFromNow(45), contractStatus: "none", paymentStatus: "none", createdAt: daysAgo(5), updatedAt: daysAgo(1) },
+   337→   337→];
+   338→   338→
+   339→   339→// ---------------------------------------------------------------------------
+   340→   340→// Directory Profiles
+   341→   341→// ---------------------------------------------------------------------------
+   342→   342→export const mockDirectory: DirectoryProfile[] = mockClinics.map((c, i) => {
+   343→   343→  const completion = c.profileCompletion;
+   344→   344→  const fields = ["servicesCompleted", "providersCompleted", "locationCompleted", "hoursCompleted", "pricingCompleted", "imagesCompleted", "bookingLinkCompleted"];
+   345→   345→  const completed = Math.round((completion / 100) * fields.length);
+   346→   346→  const data: Record<string, boolean> = {};
+   347→   347→  fields.forEach((f, idx) => { data[f] = idx < completed; });
+   348→   348→  return {
+   349→   349→    id: `dir_${i + 1}`,
+   350→   350→    clinicId: c.id,
+   351→   351→    clinicName: c.name,
+   352→   352→    listingStatus: c.directoryStatus,
+   353→   353→    claimStatus: c.directoryStatus === "published" || c.directoryStatus === "approved" ? "verified" : c.directoryStatus === "unclaimed" ? "unclaimed" : "requested",
+   354→   354→    verificationStatus: c.verificationStatus,
+   355→   355→    profileCompleteness: completion,
+   356→   356→    ...data,
+   357→   357→    lastReviewedAt: c.verificationStatus === "verified" ? daysAgo(3) : undefined,
+   358→   358→    reviewedByName: c.verificationStatus === "verified" ? "Jamil Yakasai" : undefined,
+   359→   359→    publicationStatus: c.directoryStatus === "published" ? "published" : c.directoryStatus === "approved" ? "ready" : "draft",
+   360→   360→  };
+   361→   361→});
+   362→   362→
+   363→   363→// ---------------------------------------------------------------------------
+   364→   364→// Patient Leads
+   365→   365→// ---------------------------------------------------------------------------
+   366→   366→const treatmentOptions = ["trt", "glp-1", "medical-weight-loss", "ed-care", "peptide-therapy", "hormone-optimization", "iv-therapy"];
+   367→   367→const leadSources = ["google_ads", "organic_search", "directory", "referral", "facebook", "direct"];
+   368→   368→const cities = [["Austin","TX"],["Miami","FL"],["Denver","CO"],["Phoenix","AZ"],["Houston","TX"],["Dallas","TX"],["Seattle","WA"],["Atlanta","GA"],["Charlotte","NC"],["Nashville","TN"]];
+   369→   369→
+   370→   370→export const mockPatientLeads: PatientLead[] = Array.from({ length: 24 }, (_, i) => {
+   371→   371→  const cityIdx = i % cities.length;
+   372→   372→  const [city, state] = cities[cityIdx];
+   373→   373→  const treatment = treatmentOptions[i % treatmentOptions.length];
+   374→   374→  const statuses: PatientLead["status"][] = ["new","qualified","contacted","routed","booked","lost","disqualified","duplicate"];
+   375→   375→  const status = i < 6 ? "new" : statuses[i % statuses.length];
+   376→   376→  const names = ["James Wilson","Michael Chen","Robert Taylor","David Martinez","Chris Anderson","Daniel Lee","Matthew Thompson","Anthony Garcia","Mark Davis","Steven Lopez","Brian Carter","Kevin Nguyen","Jason Reed","Ryan Murphy","Eric Phillips","Thomas Wright","Andrew Scott","Nicholas Hall","Joshua Allen","Justin Young","Brandon King","Nathan Green","Tyler Adams","Caleb Baker"];
+   377→   377→  return {
+   378→   378→    id: `pl_${i + 1}`,
+   379→   379→    name: names[i],
+   380→   380→    email: `patient${i + 1}@email.com`,
+   381→   381→    phone: `(${200 + i}) 555-${1000 + i}`,
+   382→   382→    city, state, zip: `${10001 + i * 7}`,
+   383→   383→    age: 30 + (i % 30),
+   384→   384→    treatmentInterest: treatment,
+   385→   385→    symptoms: i % 3 === 0 ? "Fatigue, low energy" : i % 3 === 1 ? "Weight gain despite exercise" : "Low libido",
+   386→   386→    assessmentScore: 60 + (i % 40),
+   387→   387→    preferredContact: i % 3 === 0 ? "phone" : i % 3 === 1 ? "email" : "sms",
+   388→   388→    availability: i % 2 === 0 ? "Weekday mornings" : "Evenings",
+   389→   389→    insurancePreference: i % 3 === 0 ? "self_pay" : i % 3 === 1 ? "insurance" : "unsure",
+   390→   390→    telehealthPreference: i % 2 === 0,
+   391→   391→    distancePreference: 10 + (i % 40),
+   392→   392→    consentStatus: i % 5 === 0 ? "opted_out" : "opted_in",
+   393→   393→    leadSource: leadSources[i % leadSources.length],
+   394→   394→    campaignSource: i < 8 ? "TRT_Search_Q3" : i < 16 ? "GLP1_Display_Q3" : "Directory_Organic",
+   395→   395→    qualificationScore: 40 + (i % 60),
+   396→   396→    urgencyScore: 20 + (i % 80),
+   397→   397→    status,
+   398→   398→    assignedClinicId: status === "routed" || status === "booked" ? `cln_${(i % 16) + 1}` : undefined,
+   399→   399→    assignedClinicName: status === "routed" || status === "booked" ? mockClinics[i % 16].name : undefined,
+   400→   400→    referralStatus: status === "routed" ? "sent" : status === "booked" ? "booked" : undefined,
+   401→   401→    bookingOutcome: status === "booked" ? "appointment_scheduled" : undefined,
+   402→   402→    notes: i % 4 === 0 ? "High intent — ready to book" : undefined,
+   403→   403→    createdAt: daysAgo(i),
+   404→   404→  };
+   405→   405→});
+   406→   406→
+   407→   407→export const mockClinicMatches: ClinicMatch[] = mockPatientLeads.slice(0, 6).flatMap((lead, idx) => {
+   408→   408→  return mockClinics.slice(0, 4).map((clinic, i) => ({
+   409→   409→    id: `match_${idx}_${i}`,
+   410→   410→    patientLeadId: lead.id,
+   411→   411→    clinicId: clinic.id,
+   412→   412→    clinicName: clinic.name,
+   413→   413→    matchScore: 90 - i * 15 - (idx % 10),
+   414→   414→    geographicFit: 100 - i * 20,
+   415→   415→    treatmentFit: clinic.services.includes(lead.treatmentInterest) ? 95 : 40,
+   416→   416→    capacityFit: 70 + (i * 5),
+   417→   417→    telehealthFit: lead.telehealthPreference && clinic.telehealth ? 100 : 50,
+   418→   418→    bookingFit: 80 - i * 10,
+   419→   419→    priceFit: 60 + (i * 8),
+   420→   420→    verificationStatus: clinic.verificationStatus,
+   421→   421→    explanation: `Geographic fit ${100 - i * 20}%, treatment ${clinic.services.includes(lead.treatmentInterest) ? "matches" : "partial match"}, ${clinic.telehealth ? "telehealth available" : "in-person only"}.`,
+   422→   422→  }));
+   423→   423→});
+   424→   424→
+   425→   425→// ---------------------------------------------------------------------------
+   426→   426→// Demand Intelligence / Markets
+   427→   427→// ---------------------------------------------------------------------------
+   428→   428→const marketSeeds = [
+   429→   429→  { geo: "Austin, TX", type: "city", state: "TX", city: "Austin", vol: 14800, trend: 24, cpc: 4.2, comp: 68, supply: 12, demand: 85 },
+   430→   430→  { geo: "Miami, FL", type: "city", state: "FL", city: "Miami", vol: 18200, trend: 31, cpc: 5.1, comp: 72, supply: 18, demand: 92 },
+   431→   431→  { geo: "Dallas, TX", type: "city", state: "TX", city: "Dallas", vol: 12600, trend: 18, cpc: 3.8, comp: 64, supply: 15, demand: 78 },
+   432→   432→  { geo: "Denver, CO", type: "city", state: "CO", city: "Denver", vol: 9800, trend: 22, cpc: 4.5, comp: 60, supply: 8, demand: 72 },
+   433→   433→  { geo: "Phoenix, AZ", type: "city", state: "AZ", city: "Phoenix", vol: 11400, trend: 15, cpc: 3.5, comp: 58, supply: 10, demand: 68 },
+   434→   434→  { geo: "Houston, TX", type: "city", state: "TX", city: "Houston", vol: 13500, trend: 19, cpc: 3.9, comp: 66, supply: 14, demand: 80 },
+   435→   435→  { geo: "Seattle, WA", type: "city", state: "WA", city: "Seattle", vol: 8200, trend: 12, cpc: 4.8, comp: 62, supply: 7, demand: 65 },
+   436→   436→  { geo: "Atlanta, GA", type: "city", state: "GA", city: "Atlanta", vol: 10100, trend: 27, cpc: 3.6, comp: 55, supply: 9, demand: 74 },
+   437→   437→  { geo: "75201 (Dallas)", type: "zip", state: "TX", zip: "75201", vol: 3200, trend: 34, cpc: 4.1, comp: 50, supply: 3, demand: 88 },
+   438→   438→  { geo: "33101 (Miami)", type: "zip", state: "FL", zip: "33101", vol: 4100, trend: 38, cpc: 5.3, comp: 65, supply: 5, demand: 94 },
+   439→   439→  { geo: "Texas", type: "state", state: "TX", vol: 52000, trend: 21, cpc: 3.9, comp: 66, supply: 41, demand: 82 },
+   440→   440→  { geo: "Florida", type: "state", state: "FL", vol: 48000, trend: 29, cpc: 4.7, comp: 70, supply: 35, demand: 90 },
+   441→   441→  { geo: "California", type: "state", state: "CA", vol: 61000, trend: 14, cpc: 5.5, comp: 78, supply: 52, demand: 76 },
+   442→   442→];
+   443→   443→
+   444→   444→export const mockMarkets: MarketData[] = marketSeeds.map((m, i) => {
+   445→   445→  const gap = m.demand - m.supply;
+   446→   446→  return {
+   447→   447→    id: `mkt_${i + 1}`,
+   448→   448→    geography: m.geo,
+   449→   449→    type: m.type as "state" | "city" | "zip",
+   450→   450→    state: m.state,
+   451→   451→    city: m.city,
+   452→   452→    zip: m.zip,
+   453→   453→    searchVolume: m.vol,
+   454→   454→    searchTrend: m.trend,
+   455→   455→    topTreatments: ["trt", "glp-1", "medical-weight-loss"].slice(0, 2 + (i % 2)),
+   456→   456→    topKeywords: [
+   457→   457→      { keyword: "trt clinic near me", volume: Math.round(m.vol * 0.3), cpc: m.cpc * 1.2 },
+   458→   458→      { keyword: "testosterone replacement therapy", volume: Math.round(m.vol * 0.25), cpc: m.cpc * 1.1 },
+   459→   459→      { keyword: "glp-1 weight loss", volume: Math.round(m.vol * 0.2), cpc: m.cpc * 0.9 },
+   460→   460→    ],
+   461→   461→    avgCpc: m.cpc,
+   462→   462→    competitionScore: m.comp,
+   463→   463→    commercialIntent: 70 + (i % 25),
+   464→   464→    clinicSupply: m.supply,
+   465→   465→    patientDemand: m.demand,
+   466→   466→    supplyDemandGap: gap,
+   467→   467→    opportunityScore: Math.min(100, Math.round(gap * 1.2 + m.trend)),
+   468→   468→    rising: m.trend > 20,
+   469→   469→  };
+   470→   470→});
+   471→   471→
+   472→   472→// ---------------------------------------------------------------------------
+   473→   473→// Campaigns
+   474→   474→// ---------------------------------------------------------------------------
+   475→   475→export const mockCampaigns: Campaign[] = [
+   476→   476→  { id: "cmp_1", name: "TRT Search — National", platform: "google", status: "active", budget: 15000, spent: 12400, impressions: 420000, clicks: 8400, conversions: 312, leads: 180, costPerLead: 69, ctr: 2.0, conversionRate: 3.7, startDate: daysAgo(30), targeting: "Search — TRT keywords, US" },
+   477→   477→  { id: "cmp_2", name: "GLP-1 Display — TX & FL", platform: "meta", status: "active", budget: 8000, spent: 6200, impressions: 310000, clicks: 6200, conversions: 248, leads: 142, costPerLead: 44, ctr: 2.0, conversionRate: 4.0, startDate: daysAgo(25), targeting: "Display — Weight loss, TX+FL" },
+   478→   478→  { id: "cmp_3", name: "Directory Retargeting", platform: "meta", status: "active", budget: 3000, spent: 2100, impressions: 180000, clicks: 2700, conversions: 89, leads: 45, costPerLead: 47, ctr: 1.5, conversionRate: 3.3, startDate: daysAgo(20), targeting: "Retargeting — Directory visitors" },
+   479→   479→  { id: "cmp_4", name: "TRT TikTok — Men 35-55", platform: "tiktok", status: "paused", budget: 5000, spent: 4800, impressions: 520000, clicks: 7800, conversions: 156, leads: 78, costPerLead: 62, ctr: 1.5, conversionRate: 2.0, startDate: daysAgo(45), endDate: daysAgo(10), targeting: "Men 35-55, TRT interest" },
+   480→   480→  { id: "cmp_5", name: "Email — Nurture Sequence", platform: "email", status: "active", budget: 500, spent: 0, impressions: 12000, clicks: 1800, conversions: 96, leads: 96, costPerLead: 0, ctr: 15.0, conversionRate: 5.3, startDate: daysAgo(60), targeting: "Existing leads — nurture" },
+   481→   481→  { id: "cmp_6", name: "LinkedIn — Clinic Outreach", platform: "linkedin", status: "draft", budget: 2000, spent: 0, impressions: 0, clicks: 0, conversions: 0, leads: 0, costPerLead: 0, ctr: 0, conversionRate: 0, targeting: "Clinic owners & medical directors" },
+   482→   482→];
+   483→   483→
+   484→   484→// ---------------------------------------------------------------------------
+   485→   485→// Workforce
+   486→   486→// ---------------------------------------------------------------------------
+   487→   487→export const mockProfessionals: Professional[] = [
+   488→   488→  { id: "pro_1", name: "Dr. Sarah Mitchell", role: "Nurse Practitioner", specialty: "TRT & Hormone Optimization", city: "Austin", state: "TX", licenses: ["TX APRN-12345"], certifications: ["AANP", "Hormone Therapy Cert"], yearsExperience: 8, availability: "available", linkedinUrl: "https://linkedin.com/in/sarahmitchell", credentialStatus: "verified", verificationStatus: "verified", matchScore: 92, createdAt: daysAgo(20) },
+   489→   489→  { id: "pro_2", name: "Dr. James Okonkwo", role: "Medical Director", specialty: "Men's Health", city: "Miami", state: "FL", licenses: ["FL MD-67890"], certifications: ["Board Certified IM"], yearsExperience: 12, availability: "open", linkedinUrl: "https://linkedin.com/in/jamesokonkwo", credentialStatus: "pending", verificationStatus: "pending", matchScore: 88, createdAt: daysAgo(15) },
+   490→   490→  { id: "pro_3", name: "Lisa Chen, PA-C", role: "Physician Assistant", specialty: "Weight Loss & GLP-1", city: "Denver", state: "CO", licenses: ["CO PA-54321"], certifications: ["NCCPA", "Obesity Medicine"], yearsExperience: 6, availability: "available", credentialStatus: "verified", verificationStatus: "verified", matchScore: 85, createdAt: daysAgo(10) },
+   491→   491→  { id: "pro_4", name: "Dr. Marcus Bell", role: "Physician", specialty: "Peptide Therapy & Longevity", city: "Phoenix", state: "AZ", licenses: ["AZ MD-11111"], certifications: ["Board Certified FM"], yearsExperience: 15, availability: "placed", credentialStatus: "verified", verificationStatus: "verified", createdAt: daysAgo(45) },
+   492→   492→  { id: "pro_5", name: "Rachel Torres, NP", role: "Nurse Practitioner", specialty: "IV Therapy & Wellness", city: "Houston", state: "TX", licenses: ["TX APRN-99999"], certifications: ["AANP"], yearsExperience: 4, availability: "open", credentialStatus: "expired", verificationStatus: "pending", matchScore: 72, createdAt: daysAgo(8) },
+   493→   493→  { id: "pro_6", name: "Dr. Anthony Reed", role: "Medical Director", specialty: "Sexual Wellness & ED", city: "Atlanta", state: "GA", licenses: ["GA MD-33333"], certifications: ["Board Certified Urology"], yearsExperience: 18, availability: "available", credentialStatus: "verified", verificationStatus: "verified", matchScore: 90, createdAt: daysAgo(12) },
+   494→   494→];
+   495→   495→
+   496→   496→export const mockJobs: JobListing[] = [
+   497→   497→  { id: "job_1", title: "Medical Director — TRT Clinic", employerName: "Summit Vitality Clinic", employerId: "cln_1", specialty: "Men's Health", city: "Austin", state: "TX", type: "part_time", salaryMin: 180000, salaryMax: 240000, status: "open", applicationsCount: 4, createdAt: daysAgo(14) },
+   498→   498→  { id: "job_2", title: "NP — Hormone Optimization", employerName: "Evergreen Hormone Clinic", employerId: "cln_3", specialty: "Hormone Optimization", city: "Seattle", state: "WA", type: "full_time", salaryMin: 120000, salaryMax: 150000, status: "open", applicationsCount: 2, createdAt: daysAgo(10) },
+   499→   499→  { id: "job_3", title: "PA-C — Weight Loss Program", employerName: "Gulf Coast Wellness Center", employerId: "cln_5", specialty: "Medical Weight Loss", city: "Houston", state: "TX", type: "full_time", salaryMin: 110000, salaryMax: 135000, status: "open", applicationsCount: 3, createdAt: daysAgo(7) },
+   500→   500→  { id: "job_4", title: "Medical Director — Longevity", employerName: "Brightside Longevity Clinic", employerId: "cln_8", specialty: "Longevity Medicine", city: "Miami", state: "FL", type: "part_time", salaryMin: 200000, salaryMax: 280000, status: "draft", applicationsCount: 0, createdAt: daysAgo(3) },
+   501→   501→];
+   502→   502→
+   503→   503→export const mockApplications: JobApplication[] = [
+   504→   504→  { id: "app_1", jobId: "job_1", jobTitle: "Medical Director — TRT Clinic", employerName: "Summit Vitality Clinic", professionalId: "pro_2", professionalName: "Dr. James Okonkwo", status: "interview", appliedAt: daysAgo(8), matchScore: 88 },
+   505→   505→  { id: "app_2", jobId: "job_1", jobTitle: "Medical Director — TRT Clinic", employerName: "Summit Vitality Clinic", professionalId: "pro_6", professionalName: "Dr. Anthony Reed", status: "reviewing", appliedAt: daysAgo(5), matchScore: 90 },
+   506→   506→  { id: "app_3", jobId: "job_2", jobTitle: "NP — Hormone Optimization", employerName: "Evergreen Hormone Clinic", professionalId: "pro_1", professionalName: "Dr. Sarah Mitchell", status: "submitted", appliedAt: daysAgo(3), matchScore: 92 },
+   507→   507→  { id: "app_4", jobId: "job_3", jobTitle: "PA-C — Weight Loss Program", employerName: "Gulf Coast Wellness Center", professionalId: "pro_3", professionalName: "Lisa Chen, PA-C", status: "interview", appliedAt: daysAgo(4), matchScore: 85 },
+   508→   508→];
+   509→   509→
+   510→   510→// ---------------------------------------------------------------------------
+   511→   511→// Marketplace
+   512→   512→// ---------------------------------------------------------------------------
+   513→   513→export const mockProducts: Product[] = [
+   514→   514→  { id: "prd_1", title: "TRT Starter Kit", sku: "NV-TRT-001", category: "Treatment Kits", vendor: "Novalyte Supply Co", price: 299, compareAtPrice: 349, cost: 145, margin: 51, inventory: 240, status: "active", visibility: "public", rating: 4.7, reviewCount: 128 },
+   515→   515→  { id: "prd_2", title: "GLP-1 Injection Supplies", sku: "NV-GLP-002", category: "Treatment Kits", vendor: "Novalyte Supply Co", price: 149, cost: 62, margin: 58, inventory: 580, status: "active", visibility: "public", rating: 4.5, reviewCount: 84 },
+   516→   516→  { id: "prd_3", title: "Peptide Therapy Bundle", sku: "NV-PEP-003", category: "Treatment Kits", vendor: "BioPeptide Labs", price: 399, compareAtPrice: 449, cost: 210, margin: 47, inventory: 85, status: "active", visibility: "public", rating: 4.8, reviewCount: 56 },
+   517→   517→  { id: "prd_4", title: "IV Therapy Drip Set", sku: "NV-IV-004", category: "Clinic Supplies", vendor: "MedSupply Direct", price: 89, cost: 38, margin: 57, inventory: 0, status: "out_of_stock", visibility: "public", rating: 4.3, reviewCount: 42 },
+   518→   518→  { id: "prd_5", title: "Vitality Supplement Stack", sku: "NV-SUP-005", category: "Supplements", vendor: "Novalyte Nutrition", price: 129, compareAtPrice: 159, cost: 48, margin: 63, inventory: 1200, status: "active", visibility: "public", rating: 4.6, reviewCount: 312 },
+   519→   519→  { id: "prd_6", title: "At-Home Testosterone Test", sku: "NV-TST-006", category: "Diagnostics", vendor: "Novalyte Diagnostics", price: 79, cost: 28, margin: 65, inventory: 450, status: "active", visibility: "public", rating: 4.4, reviewCount: 198 },
+   520→   520→];
+   521→   521→
+   522→   522→export const mockOrders: Order[] = [
+   523→   523→  { id: "ord_1", orderNumber: "NV-10042", customerName: "James Wilson", customerEmail: "jwilson@email.com", items: [{ name: "TRT Starter Kit", qty: 1, price: 299 }], total: 299, paymentStatus: "paid", fulfillmentStatus: "shipped", trackingNumber: "1Z999AA10123456784", createdAt: daysAgo(2) },
+   524→   524→  { id: "ord_2", orderNumber: "NV-10043", customerName: "Michael Chen", customerEmail: "mchen@email.com", items: [{ name: "Vitality Supplement Stack", qty: 2, price: 129 }, { name: "At-Home Testosterone Test", qty: 1, price: 79 }], total: 337, paymentStatus: "paid", fulfillmentStatus: "fulfilled", createdAt: daysAgo(3) },
+   525→   525→  { id: "ord_3", orderNumber: "NV-10044", customerName: "Robert Taylor", customerEmail: "rtaylor@email.com", items: [{ name: "Peptide Therapy Bundle", qty: 1, price: 399 }], total: 399, paymentStatus: "pending", fulfillmentStatus: "unfulfilled", createdAt: daysAgo(1), riskFlags: ["Address mismatch"] },
+   526→   526→  { id: "ord_4", orderNumber: "NV-10045", customerName: "David Martinez", customerEmail: "dmartinez@email.com", items: [{ name: "GLP-1 Injection Supplies", qty: 3, price: 149 }], total: 447, paymentStatus: "paid", fulfillmentStatus: "partial", createdAt: daysAgo(4) },
+   527→   527→  { id: "ord_5", orderNumber: "NV-10046", customerName: "Chris Anderson", customerEmail: "canderson@email.com", items: [{ name: "IV Therapy Drip Set", qty: 2, price: 89 }], total: 178, paymentStatus: "failed", fulfillmentStatus: "unfulfilled", createdAt: daysAgo(1), riskFlags: ["Payment declined"] },
+   528→   528→  { id: "ord_6", orderNumber: "NV-10047", customerName: "Daniel Lee", customerEmail: "dlee@email.com", items: [{ name: "TRT Starter Kit", qty: 1, price: 299 }, { name: "At-Home Testosterone Test", qty: 1, price: 79 }], total: 378, paymentStatus: "paid", fulfillmentStatus: "shipped", trackingNumber: "1Z999AA10123456790", createdAt: daysAgo(5) },
+   529→   529→];
+   530→   530→
+   531→   531→// ---------------------------------------------------------------------------
+   532→   532→// Content / Articles
+   533→   533→// ---------------------------------------------------------------------------
+   534→   534→export const mockArticles: Article[] = [
+   535→   535→  { id: "art_1", title: "TRT Therapy: Complete Guide for Men Over 40", slug: "trt-therapy-guide-men-over-40", excerpt: "Everything you need to know about testosterone replacement therapy.", category: "Treatment Guides", treatmentCategory: "trt", audience: "men_35_plus", searchIntent: "informational", primaryKeyword: "trt therapy", secondaryKeywords: ["testosterone replacement", "trt benefits", "trt side effects"], authorName: "Dr. Sarah Mitchell", reviewerName: "Dr. James Okonkwo", status: "published", wordCount: 2400, seoScore: 88, readabilityScore: 72, publishDate: daysAgo(10), views: 18400, createdAt: daysAgo(20) },
+   536→   536→  { id: "art_2", title: "GLP-1 Medications for Weight Loss: What to Expect", slug: "glp-1-weight-loss-guide", excerpt: "A comprehensive look at GLP-1 agonists for medical weight loss.", category: "Treatment Guides", treatmentCategory: "glp-1", audience: "weight_loss_seekers", searchIntent: "commercial", primaryKeyword: "glp-1 weight loss", secondaryKeywords: ["semaglutide", "weight loss injections", "glp-1 results"], authorName: "Lisa Chen, PA-C", status: "scheduled", wordCount: 1800, seoScore: 84, readabilityScore: 75, publishDate: daysFromNow(3), createdAt: daysAgo(8) },
+   537→   537→  { id: "art_3", title: "5 Signs You May Have Low Testosterone", slug: "signs-of-low-testosterone", excerpt: "Recognizing the symptoms of low T and when to seek treatment.", category: "Symptoms", treatmentCategory: "trt", searchIntent: "informational", primaryKeyword: "low testosterone symptoms", secondaryKeywords: ["low t signs", "testosterone deficiency"], authorName: "Dr. Anthony Reed", status: "review", wordCount: 1200, seoScore: 76, readabilityScore: 80, createdAt: daysAgo(5) },
+   538→   538→  { id: "art_4", title: "Peptide Therapy Benefits: The Complete 2024 Guide", slug: "peptide-therapy-benefits-guide", category: "Treatment Guides", treatmentCategory: "peptide-therapy", searchIntent: "informational", primaryKeyword: "peptide therapy benefits", secondaryKeywords: [], authorName: "Jamil Yakasai", status: "draft", wordCount: 800, seoScore: 62, readabilityScore: 68, createdAt: daysAgo(3) },
+   539→   539→  { id: "art_5", title: "IV Therapy: Does It Really Work?", slug: "iv-therapy-effectiveness", category: "Wellness", treatmentCategory: "iv-therapy", searchIntent: "informational", primaryKeyword: "does iv therapy work", secondaryKeywords: ["iv therapy benefits"], authorName: "Dr. Sarah Mitchell", status: "idea", createdAt: daysAgo(1) },
+   540→   540→  { id: "art_6", title: "Hormone Optimization for Athletic Performance", slug: "hormone-optimization-athletic-performance", category: "Performance", treatmentCategory: "hormone-optimization", searchIntent: "commercial", primaryKeyword: "hormone optimization", secondaryKeywords: ["athletic performance hormones"], authorName: "Dr. Marcus Bell", reviewerName: "Dr. James Okonkwo", status: "approved", wordCount: 2000, seoScore: 90, readabilityScore: 74, createdAt: daysAgo(12) },
+   541→   541→  { id: "art_7", title: "Erectile Dysfunction: Treatment Options Explained", slug: "ed-treatment-options", category: "Treatment Guides", treatmentCategory: "ed-care", searchIntent: "commercial", primaryKeyword: "ed treatment options", secondaryKeywords: ["erectile dysfunction treatment"], authorName: "Dr. Anthony Reed", status: "published", wordCount: 1600, seoScore: 85, readabilityScore: 78, publishDate: daysAgo(20), views: 12200, createdAt: daysAgo(30) },
+   542→   542→  { id: "art_8", title: "Medical Weight Loss: GLP-1 vs Traditional Diets", slug: "glp-1-vs-traditional-diets", category: "Weight Loss", treatmentCategory: "glp-1", searchIntent: "commercial", primaryKeyword: "glp-1 vs diet", secondaryKeywords: [], authorName: "Lisa Chen, PA-C", status: "brief", createdAt: daysAgo(2) },
+   543→   543→];
+   544→   544→
+   545→   545→// ---------------------------------------------------------------------------
+   546→   546→// Automation / AI
+   547→   547→// ---------------------------------------------------------------------------
+   548→   548→export const mockAutomations: Automation[] = [
+   549→   549→  { id: "auto_1", name: "New Lead → Auto-Qualify", description: "Scores and qualifies new patient leads", trigger: "patient_lead.created", actions: ["ai_score_lead", "assign_to_queue"], status: "active", lastRunAt: hoursAgo(1), runCount: 1240, failureCount: 2 },
+   550→   550→  { id: "auto_2", name: "Call Logged → Update Pipeline", description: "Updates clinic stage based on call outcome", trigger: "call_session.logged", actions: ["update_clinic_stage", "create_followup_if_needed"], status: "active", lastRunAt: hoursAgo(3), runCount: 580, failureCount: 0 },
+   551→   551→  { id: "auto_3", name: "Directory Application → Notify", description: "Sends notification on new directory application", trigger: "directory_application.submitted", actions: ["send_notification", "create_task"], status: "active", lastRunAt: hoursAgo(6), runCount: 42, failureCount: 0 },
+   552→   552→  { id: "auto_4", name: "Overdue Follow-Up Alert", description: "Escalates follow-ups overdue by 24h+", trigger: "followup.overdue", actions: ["send_alert", "reassign_if_needed"], status: "active", lastRunAt: hoursAgo(12), runCount: 180, failureCount: 1 },
+   553→   553→  { id: "auto_5", name: "Article Published → Social Post", description: "Auto-generates social media posts for new articles", trigger: "article.published", actions: ["generate_social_copy", "schedule_posts"], status: "error", lastRunAt: daysAgo(2), runCount: 24, failureCount: 8 },
+   554→   554→  { id: "auto_6", name: "Deal Won → Onboarding Workflow", description: "Triggers clinic onboarding when deal is won", trigger: "deal.stage_changed", actions: ["create_onboarding_tasks", "notify_ops"], status: "paused", runCount: 12, failureCount: 0 },
+   555→   555→];
+   556→   556→
+   557→   557→export const mockAIUsage: AIUsageRecord[] = Array.from({ length: 12 }, (_, i) => ({
+   558→   558→  id: `aiu_${i + 1}`,
+   559→   559→  model: i % 3 === 0 ? "gpt-4o" : i % 3 === 1 ? "gpt-4o-mini" : "text-embedding-3",
+   560→   560→  feature: i % 4 === 0 ? "article_generation" : i % 4 === 1 ? "lead_scoring" : i % 4 === 2 ? "call_transcript" : "clinic_research",
+   561→   561→  promptTokens: 500 + i * 200,
+   562→   562→  completionTokens: 800 + i * 300,
+   563→   563→  cost: (0.02 + i * 0.01),
+   564→   564→  timestamp: hoursAgo(i * 6),
+   565→   565→}));
+   566→   566→
+   567→   567→// ---------------------------------------------------------------------------
+   568→   568→// Integrations
+   569→   569→// ---------------------------------------------------------------------------
+   570→   570→export const mockIntegrations: Integration[] = [
+   571→   571→  { key: "supabase", label: "Supabase", status: "connected", note: "Database & auth", lastSyncAt: hoursAgo(1) },
+   572→   572→  { key: "vercel", label: "Vercel", status: "connected", note: "Deployment & hosting", lastSyncAt: hoursAgo(2) },
+   573→   573→  { key: "slack", label: "Slack", status: "configuration_required", note: "Notifications — webhook URL needed" },
+   574→   574→  { key: "email", label: "Email Provider (Resend)", status: "configuration_required", note: "Transactional email — API key needed" },
+   575→   575→  { key: "calendar", label: "Google Calendar", status: "not_connected", note: "Meeting sync" },
+   576→   576→  { key: "openai", label: "OpenAI", status: "connected", note: "AI features — call copilot (R2)", lastSyncAt: hoursAgo(1) },
+   577→   577→  { key: "twilio", label: "Twilio", status: "not_connected", note: "Telephony — call console (R2)" },
+   578→   578→  { key: "stripe", label: "Stripe", status: "configuration_required", note: "Payments — API key needed" },
+   579→   579→  { key: "google_ads", label: "Google Ads", status: "configuration_required", note: "Campaign sync — OAuth needed" },
+   580→   580→  { key: "meta_ads", label: "Meta Ads", status: "not_connected", note: "Campaign sync" },
+   581→   581→];
+   582→   582→
+   583→   583→// ---------------------------------------------------------------------------
+   584→   584→// Audit Events
+   585→   585→// ---------------------------------------------------------------------------
+   586→   586→export const mockAuditEvents: AuditEvent[] = [
+   587→   587→  { id: "aud_1", actorName: "Jamil Yakasai", action: "admin.signed_in", resourceType: "admin", ipAddress: "73.14.22.108", timestamp: hoursAgo(2) },
+   588→   588→  { id: "aud_2", actorName: "Jamil Yakasai", action: "clinic.stage_changed", resourceType: "clinic", resourceId: "cln_1", ipAddress: "73.14.22.108", timestamp: hoursAgo(48), metadata: { from: "interested", to: "proposal_sent" } },
+   589→   589→  { id: "aud_3", actorName: "Devon Marsh", action: "call.logged", resourceType: "call", resourceId: "call_5", ipAddress: "98.222.11.45", timestamp: hoursAgo(72) },
+   590→   590→  { id: "aud_4", actorName: "Jamil Yakasai", action: "deal.created", resourceType: "deal", resourceId: "deal_1", ipAddress: "73.14.22.108", timestamp: daysAgo(15) },
+   591→   591→  { id: "aud_5", actorName: "Amani Okafor", action: "settings.updated", resourceType: "settings", ipAddress: "108.45.22.91", timestamp: daysAgo(1), metadata: { section: "calling_hours" } },
+   592→   592→  { id: "aud_6", actorName: "Jamil Yakasai", action: "directory.approved", resourceType: "directory", resourceId: "dir_1", ipAddress: "73.14.22.108", timestamp: daysAgo(3) },
+   593→   593→];
+   594→   594→
+   595→   595→// ---------------------------------------------------------------------------
+   596→   596→// Notifications
+   597→   597→// ---------------------------------------------------------------------------
+   598→   598→export const mockNotifications: NotificationItem[] = [
+   599→   599→  { id: "n1", type: "followup_overdue", title: "Overdue Follow-Up", message: "Send information packet to Rocky Mountain Men's Health is overdue.", priority: "high", isRead: false, relatedEntityType: "followup", createdAt: hoursAgo(6) },
+   600→   600→  { id: "n2", type: "meeting_upcoming", title: "Meeting Tomorrow", message: "Pacific Men's Health discovery call scheduled tomorrow.", priority: "normal", isRead: false, relatedEntityType: "clinic", createdAt: hoursAgo(3) },
+   601→   601→  { id: "n3", type: "high_intent_clinic", title: "High-Intent Clinic", message: "Summit Vitality Clinic showed strong buying signals.", priority: "critical", isRead: false, relatedEntityType: "clinic", createdAt: hoursAgo(12) },
+   602→   602→  { id: "n4", type: "patient_lead_unassigned", title: "3 Unassigned Patient Leads", message: "New patient leads awaiting routing.", priority: "high", isRead: false, relatedEntityType: "patient_lead", createdAt: hoursAgo(2) },
+   603→   603→  { id: "n5", type: "campaign_budget_alert", title: "Campaign Over Budget", message: "TRT TikTok campaign has spent 96% of budget.", priority: "warning", isRead: true, relatedEntityType: "campaign", createdAt: daysAgo(1) },
+   604→   604→  { id: "n6", type: "automation_failed", title: "Automation Failed", message: "Article Published → Social Post automation failed 8 times.", priority: "high", isRead: false, relatedEntityType: "automation", createdAt: daysAgo(2) },
+   605→   605→  { id: "n7", type: "directory_application", title: "New Directory Application", message: "Gulf Coast Wellness Center submitted a directory application.", priority: "normal", isRead: true, relatedEntityType: "directory", createdAt: daysAgo(3) },
+   606→   606→  { id: "n8", type: "integration_disconnected", title: "Slack Integration Needs Config", message: "Slack webhook URL is not configured.", priority: "warning", isRead: true, createdAt: daysAgo(5) },
+   607→   607→];
+   608→   608→
+   609→   609→// ---------------------------------------------------------------------------
+   610→   610→// Activity Feed
+   611→   611→// ---------------------------------------------------------------------------
+   612→   612→export const mockActivities: ActivityEvent[] = [
+   613→   613→  { id: "act_1", entityType: "clinic", entityId: "cln_1", action: "stage_changed", summary: "Stage changed: Interested → Proposal Sent — Summit Vitality Clinic", adminName: "Jamil Yakasai", timestamp: hoursAgo(48), metadata: { from: "interested", to: "proposal_sent" } },
+   614→   614→  { id: "act_2", entityType: "call", entityId: "call_3", action: "call_logged", summary: "Call logged — Connected (DM reached) — Cardinal Performance Medicine", adminName: "Jamil Yakasai", timestamp: hoursAgo(24) },
+   615→   615→  { id: "act_3", entityType: "deal", entityId: "deal_1", action: "deal_created", summary: "Deal created — Summit Vitality — Annual Partnership", adminName: "Jamil Yakasai", timestamp: daysAgo(15) },
+   616→   616→  { id: "act_4", entityType: "followup", entityId: "fu_4", action: "followup_created", summary: "Follow-up created — Prepare proposal for Evergreen", adminName: "Devon Marsh", timestamp: daysAgo(3) },
+   617→   617→  { id: "act_5", entityType: "clinic", entityId: "cln_5", action: "contact_added", summary: "Contact added — Vanessa Reyes, Operations Manager — Gulf Coast Wellness", adminName: "Devon Marsh", timestamp: daysAgo(5) },
+   618→   618→  { id: "act_6", entityType: "directory", entityId: "dir_1", action: "directory_status_changed", summary: "Directory status → Published — Summit Vitality Clinic", adminName: "Jamil Yakasai", timestamp: daysAgo(3) },
+   619→   619→  { id: "act_7", entityType: "clinic", entityId: "cln_1", action: "clinic_updated", summary: "Clinic updated — Summit Vitality Clinic", adminName: "Jamil Yakasai", timestamp: hoursAgo(48) },
+   620→   620→  { id: "act_8", entityType: "patient_lead", entityId: "pl_1", action: "patient_lead_created", summary: "New patient lead — James Wilson (TRT interest)", adminName: "system", timestamp: hoursAgo(1) },
+   621→   621→];
+   622→   622→

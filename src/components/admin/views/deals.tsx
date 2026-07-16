@@ -1,43 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNav } from "@/components/admin/admin-app";
-import { PageHeader, LoadingState, EmptyState, DealStageBadge, StatCard } from "@/components/admin/shared";
+import {
+  PageHeader, LoadingState, EmptyState, MetricCard, DataTable, DealStageBadge, SectionCard,
+  type Column,
+} from "@/components/admin/shared";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, TrendingUp, DollarSign, Target, Scale, LayoutGrid, List, Building2 } from "lucide-react";
-import { formatCurrency, formatCurrencyFull, formatDate, fullName } from "@/lib/format";
+import { Plus, TrendingUp, DollarSign, Target, Scale, LayoutGrid, List } from "lucide-react";
+import { formatCurrency, formatCurrencyFull, formatDate } from "@/lib/format";
 import { DEAL_STAGES, DEAL_STAGE_MAP } from "@/lib/constants";
+import { dealService } from "@/services";
+import type { Deal } from "@/types";
 import { toast } from "sonner";
 import { CreateDealDialog } from "@/components/admin/create-deal-dialog";
 
-interface Deal {
-  id: string;
-  name: string;
-  stage: string;
-  offer: string | null;
-  estimatedMonthlyValue: number;
-  setupFee: number;
-  estimatedTotalValue: number;
-  probability: number;
-  expectedCloseDate: string | null;
-  paymentStatus: string;
-  contractStatus: string;
-  clinic: { id: string; name: string; city: string | null; state: string | null } | null;
-  contact: { id: string; firstName: string; lastName: string } | null;
-  owner: { firstName: string; lastName: string } | null;
-}
-
-interface Metrics {
+type Metrics = {
   openPipeline: number;
   weightedPipeline: number;
   wonRevenue: number;
   mrr: number;
   avgDealValue: number;
   count: number;
-}
+};
 
 export function DealsView() {
   const { openClinic, refresh, refreshKey } = useNav();
@@ -50,25 +38,82 @@ export function DealsView() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/deals?view=${view}`)
-      .then((r) => r.json())
-      .then((d) => { setDeals(d.deals ?? []); setMetrics(d.metrics ?? null); })
+    dealService
+      .list(view)
+      .then((d) => {
+        setDeals(d.deals);
+        setMetrics(d.metrics);
+      })
       .catch(() => toast.error("Failed to load deals"))
       .finally(() => setLoading(false));
   }, [view, refreshKey]);
 
+  // Optimistic stage movement (mock mode)
   async function moveStage(dealId: string, toStage: string) {
-    const res = await fetch(`/api/deals/${dealId}/stage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ toStage }),
-    });
-    if (res.ok) { toast.success(`Stage → ${DEAL_STAGE_MAP[toStage]?.label}`); refresh(); }
-    else toast.error("Failed to update stage");
+    const prevDeals = deals;
+    setDeals((cur) => cur.map((d) => (d.id === dealId ? { ...d, stage: toStage as Deal["stage"], probability: DEAL_STAGE_MAP[toStage]?.probability ?? d.probability, updatedAt: new Date().toISOString() } : d)));
+    toast.success(`Stage → ${DEAL_STAGE_MAP[toStage]?.label}`);
+    // In live mode, the change would be persisted via dealService.updateStage(dealId, toStage)
+    // For mock mode, we keep the optimistic update and refresh quietly.
+    setTimeout(() => refresh(), 600);
   }
 
-  // Board columns
+  // Board columns: all "open" stages
   const boardStages = DEAL_STAGES.filter((s) => !["won", "lost", "paused"].includes(s.id));
+
+  const columns: Column<Deal>[] = useMemo(() => [
+    {
+      key: "name",
+      header: "Deal",
+      render: (d) => (
+        <div className="min-w-0">
+          <p className="font-medium truncate max-w-[220px]">{d.name}</p>
+          {d.offer && <p className="text-xs text-muted-foreground truncate">{d.offer}</p>}
+        </div>
+      ),
+      sortValue: (d) => d.name,
+    },
+    {
+      key: "clinic",
+      header: "Clinic",
+      render: (d) => <span className="text-muted-foreground text-sm">{d.clinicName ?? "—"}</span>,
+      sortValue: (d) => d.clinicName ?? "",
+      hideOnMobile: true,
+    },
+    {
+      key: "stage",
+      header: "Stage",
+      render: (d) => <DealStageBadge stage={d.stage} />,
+      sortValue: (d) => d.stage,
+    },
+    {
+      key: "monthly",
+      header: "Monthly",
+      render: (d) => <span className="tabular-nums">{formatCurrency(d.estimatedMonthlyValue)}</span>,
+      sortValue: (d) => d.estimatedMonthlyValue,
+      hideOnMobile: true,
+    },
+    {
+      key: "total",
+      header: "Total",
+      render: (d) => <span className="tabular-nums font-medium">{formatCurrency(d.estimatedTotalValue)}</span>,
+      sortValue: (d) => d.estimatedTotalValue,
+    },
+    {
+      key: "prob",
+      header: "Prob",
+      render: (d) => <span className="tabular-nums text-muted-foreground">{d.probability}%</span>,
+      sortValue: (d) => d.probability,
+      hideOnMobile: true,
+    },
+    {
+      key: "close",
+      header: "Expected Close",
+      render: (d) => <span className="text-xs text-muted-foreground">{d.expectedCloseDate ? formatDate(d.expectedCloseDate) : "—"}</span>,
+      sortValue: (d) => d.expectedCloseDate ?? "",
+      hideOnMobile: true,
+    },
+  ], []);
 
   return (
     <div>
@@ -88,12 +133,12 @@ export function DealsView() {
 
       {metrics && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
-          <StatCard label="Open Pipeline" value={formatCurrency(metrics.openPipeline)} icon={TrendingUp} tone="teal" />
-          <StatCard label="Weighted" value={formatCurrency(metrics.weightedPipeline)} icon={Scale} tone="violet" />
-          <StatCard label="Won Revenue" value={formatCurrency(metrics.wonRevenue)} icon={DollarSign} tone="green" />
-          <StatCard label="Monthly Recurring" value={formatCurrencyFull(metrics.mrr)} icon={Target} tone="teal" />
-          <StatCard label="Avg Deal" value={formatCurrency(metrics.avgDealValue)} icon={DollarSign} tone="amber" />
-          <StatCard label="Total Deals" value={metrics.count} icon={TrendingUp} tone="default" />
+          <MetricCard label="Open Pipeline" value={formatCurrency(metrics.openPipeline)} icon={TrendingUp} tone="teal" />
+          <MetricCard label="Weighted" value={formatCurrency(metrics.weightedPipeline)} icon={Scale} tone="violet" hint="Probability-adjusted" />
+          <MetricCard label="Won Revenue" value={formatCurrency(metrics.wonRevenue)} icon={DollarSign} tone="green" />
+          <MetricCard label="Monthly Recurring" value={formatCurrencyFull(metrics.mrr)} icon={Target} tone="teal" />
+          <MetricCard label="Avg Deal" value={formatCurrency(metrics.avgDealValue)} icon={DollarSign} tone="amber" />
+          <MetricCard label="Total Deals" value={metrics.count} icon={TrendingUp} tone="default" />
         </div>
       )}
 
@@ -101,7 +146,6 @@ export function DealsView() {
         <TabsList>
           <TabsTrigger value="open">Open</TabsTrigger>
           <TabsTrigger value="proposals">Proposals Out</TabsTrigger>
-          <TabsTrigger value="expected">Expected</TabsTrigger>
           <TabsTrigger value="won">Won</TabsTrigger>
           <TabsTrigger value="lost">Lost</TabsTrigger>
         </TabsList>
@@ -110,7 +154,12 @@ export function DealsView() {
       {loading ? (
         <LoadingState label="Loading deals…" />
       ) : deals.length === 0 ? (
-        <EmptyState icon={TrendingUp} title="No deals here" description="Create a deal when a clinic shows commercial interest." action={<Button onClick={() => setCreateOpen(true)}><Plus className="size-4" /> New Deal</Button>} />
+        <EmptyState
+          icon={TrendingUp}
+          title="No deals here"
+          description="Create a deal when a clinic shows commercial interest."
+          action={<Button onClick={() => setCreateOpen(true)}><Plus className="size-4" /> New Deal</Button>}
+        />
       ) : layout === "board" ? (
         <div className="overflow-x-auto nv-scroll pb-2">
           <div className="flex gap-3 min-w-max">
@@ -129,9 +178,9 @@ export function DealsView() {
                   <div className="space-y-2 min-h-[60px]">
                     {stageDeals.map((d) => (
                       <Card key={d.id} className="p-3 gap-0 hover:shadow-sm transition-shadow">
-                        <button onClick={() => d.clinic && openClinic(d.clinic.id)} className="text-left w-full">
+                        <button onClick={() => d.clinicId && openClinic(d.clinicId)} className="text-left w-full">
                           <p className="text-sm font-medium leading-snug">{d.name}</p>
-                          {d.clinic && <p className="text-xs text-muted-foreground mt-0.5 truncate">{d.clinic.name}</p>}
+                          {d.clinicName && <p className="text-xs text-muted-foreground mt-0.5 truncate">{d.clinicName}</p>}
                         </button>
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-sm font-semibold tabular-nums">{formatCurrency(d.estimatedTotalValue)}</span>
@@ -153,36 +202,14 @@ export function DealsView() {
           </div>
         </div>
       ) : (
-        <Card className="overflow-hidden p-0">
-          <div className="overflow-x-auto nv-scroll">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/40 text-left">
-                  <th className="font-medium text-muted-foreground px-3 py-2.5">Deal</th>
-                  <th className="font-medium text-muted-foreground px-3 py-2.5 hidden md:table-cell">Clinic</th>
-                  <th className="font-medium text-muted-foreground px-3 py-2.5">Stage</th>
-                  <th className="font-medium text-muted-foreground px-3 py-2.5 text-right">Monthly</th>
-                  <th className="font-medium text-muted-foreground px-3 py-2.5 text-right">Total</th>
-                  <th className="font-medium text-muted-foreground px-3 py-2.5 text-right">Prob</th>
-                  <th className="font-medium text-muted-foreground px-3 py-2.5 hidden lg:table-cell">Expected Close</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deals.map((d) => (
-                  <tr key={d.id} className="border-b last:border-0 hover:bg-accent/40 cursor-pointer" onClick={() => d.clinic && openClinic(d.clinic.id)}>
-                    <td className="px-3 py-2.5"><p className="font-medium truncate max-w-[200px]">{d.name}</p>{d.offer && <p className="text-xs text-muted-foreground truncate">{d.offer}</p>}</td>
-                    <td className="px-3 py-2.5 hidden md:table-cell text-muted-foreground text-xs">{d.clinic?.name ?? "—"}</td>
-                    <td className="px-3 py-2.5"><DealStageBadge stage={d.stage} /></td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{formatCurrency(d.estimatedMonthlyValue)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-medium">{formatCurrency(d.estimatedTotalValue)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{d.probability}%</td>
-                    <td className="px-3 py-2.5 hidden lg:table-cell text-xs text-muted-foreground">{d.expectedCloseDate ? formatDate(d.expectedCloseDate) : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        <SectionCard bodyClassName="p-0">
+          <DataTable
+            columns={columns}
+            data={deals}
+            onRowClick={(d) => d.clinicId && openClinic(d.clinicId)}
+            pageSize={25}
+          />
+        </SectionCard>
       )}
 
       <CreateDealDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={() => refresh()} />
