@@ -50,6 +50,7 @@ const ClinicsView = lazy(() => import("@/components/admin/views/clinics").then((
 const ClinicDetailView = lazy(() => import("@/components/admin/views/clinic-detail").then((m) => ({ default: m.ClinicDetailView })));
 const CallQueueView = lazy(() => import("@/components/admin/views/call-queue").then((m) => ({ default: m.CallQueueView })));
 const CallConsoleView = lazy(() => import("@/components/admin/views/call-console").then((m) => ({ default: m.CallConsoleView })));
+const CallsView = lazy(() => import("@/components/admin/views/calls").then((m) => ({ default: m.CallsView })));
 const FollowUpsView = lazy(() => import("@/components/admin/views/follow-ups").then((m) => ({ default: m.FollowUpsView })));
 const ContactsView = lazy(() => import("@/components/admin/views/contacts").then((m) => ({ default: m.ContactsView })));
 const DecisionMakersView = lazy(() => import("@/components/admin/views/decision-makers").then((m) => ({ default: m.DecisionMakersView })));
@@ -138,6 +139,7 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "clinic-detail": ClinicDetailView,
   "call-queue": CallQueueView,
   "call-console": CallConsoleView,
+  "calls": CallsView,
   "follow-ups": FollowUpsView,
   "contacts": ContactsView,
   "decision-makers": DecisionMakersView,

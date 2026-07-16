@@ -36,6 +36,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "overview", label: "Executive Overview", icon: LayoutDashboard },
       { id: "priorities", label: "Today's Priorities", icon: ListChecks },
+      { id: "calls", label: "Calls", icon: PhoneCall },
       { id: "revenue-overview", label: "Revenue Overview", icon: TrendingUp },
       { id: "operations-overview", label: "Operations Overview", icon: ActivityIcon },
       { id: "alerts", label: "Alerts", icon: ShieldCheck },
