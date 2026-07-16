@@ -1,16 +1,13 @@
 /**
- * Telephony and AI Voice Copilot Simulator
+ * Human-Led Telephony and AI Voice Copilot Simulator
  * 
- * Simulates a realistic outbound clinic acquisition call. Emits events for:
- * - Call state transitions (idle, dialing, ringing, connected, hold, ended)
- * - Real-time transcription turns (You vs. Clinic)
- * - Dynamic Talk Track (script stage transitions)
- * - Qualification checklist verifications (completed in real-time)
- * - AI Voice Copilot recommendations (objections, responses, facts, warnings)
+ * Simulates an outbound clinic call where you (Jamil) speak to the clinic (Priya).
+ * The AI Copilot silently listens, transcribes both sides, tracks checklist items,
+ * and updates suggested responses and private coaching alerts on screen.
  */
 
 export interface SimulatorEvent {
-  type: "status" | "transcript" | "copilot" | "checklist" | "stage" | "duration";
+  type: "status" | "transcript" | "copilot" | "checklist" | "stage" | "duration" | "metrics";
   payload: any;
 }
 
@@ -18,7 +15,7 @@ export interface DialogueTurn {
   timeSec: number;
   speaker: "you" | "clinic";
   text: string;
-  stage: "intro" | "discovery" | "objections" | "agreement" | "closing";
+  stage: "intro" | "permission" | "directory" | "qualification" | "objections" | "interest" | "scheduling" | "closing";
   checklistChecked?: string[]; // IDs of checklist items verified in this turn
   copilot?: {
     suggestion: string;
@@ -27,6 +24,8 @@ export interface DialogueTurn {
     facts?: string[];
     warning?: string;
     nextAction: string;
+    speakingPace?: string; // e.g. "Good pace (135 WPM)"
+    interruptionWarning?: boolean; // True if operator interrupted clinic
   };
 }
 
@@ -34,144 +33,172 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
   {
     timeSec: 3,
     speaker: "clinic",
-    text: "Hello, Summit Vitality Clinic, this is Priya. How can I help you today?",
+    text: "Hello, Summit Vitality Clinic, this is Priya. How can I help you?",
     stage: "intro",
     copilot: {
-      suggestion: "Introduce yourself, state your company name (Novalyte), and verify Dr. Cole's status.",
-      question: "Confirm if Dr. Marcus Cole is still the Medical Director at Summit Vitality.",
-      facts: ["Clinic Name: Summit Vitality Clinic", "Primary contact: Priya (Practice Manager)"],
-      nextAction: "Verify decision-maker.",
+      suggestion: "Hello, Priya. This is Jamil with Novalyte. I wanted to verify your clinic's listing details.",
+      question: "Verify if you are speaking with the correct clinic representative (Priya).",
+      facts: ["Clinic Name: Summit Vitality Clinic", "Answered by: Priya"],
+      nextAction: "Introduce yourself & state purpose.",
+      speakingPace: "Good (130 WPM)",
     }
   },
   {
     timeSec: 10,
     speaker: "you",
-    text: "Hi Priya, this is Devon from Novalyte. We are verifying listing details for Summit Vitality Clinic in our Men's Health Patient Directory. I wanted to check if Dr. Marcus Cole is still the Medical Director?",
+    text: "Hello, Priya. This is Jamil with Novalyte. I hope you're having a good day. I'm calling to verify some of the listing details for Summit Vitality Clinic in our national directory.",
     stage: "intro",
-    checklistChecked: ["q3"], // Verified clinic name
+    checklistChecked: ["q3"], // Clinic name and phone verified
   },
   {
     timeSec: 16,
     speaker: "clinic",
-    text: "Yes, Dr. Cole is our Medical Director. But what directory are you talking about? We didn't sign up for any directory.",
-    stage: "objections",
+    text: "Oh, hi Jamil. Yes, this is Summit Vitality. I am the Practice Manager. What directory are you referring to? We didn't sign up for anything.",
+    stage: "directory",
+    checklistChecked: ["q2"], // Contact name & role confirmed (Priya, PM)
     copilot: {
-      suggestion: "Explain that this is a free, high-intent national patient matching directory with no sign-up costs.",
-      question: "Would it be okay to verify your address so we can route patients correctly?",
-      objectionGuidance: "Objection: 'We didn't sign up'. Response: 'No worries! It's our national patient matching directory. It is completely free for clinics, and we just want to ensure your profile is accurate for incoming patients.'",
-      facts: ["Decision-maker confirmed: Dr. Cole", "Clinic has not explicitly signed up before"],
-      nextAction: "Address sign-up objection and move to location verification.",
+      suggestion: "No worries! It's the Novalyte Men's Health Directory. We list clinics for free to help local patients find care. Can I explain how it works?",
+      question: "Request permission to continue and explain the directory.",
+      objectionGuidance: "Objection: 'We didn't sign up'. Response: Reassure them that listings are free and meant for patient routing, with no billing or strings attached.",
+      facts: ["Priya is the Practice Manager", "Decision-maker Marcus Cole works at this location"],
+      nextAction: "Get permission to explain directory.",
+      speakingPace: "Good (135 WPM)"
     }
   },
   {
     timeSec: 25,
     speaker: "you",
-    text: "No worries at all, Priya! This is our national patient matching directory. It is completely free for clinics, and we just want to ensure your profile is accurate so we route patients in the Austin area to you correctly.",
-    stage: "objections",
-    checklistChecked: ["q2"], // Listing contact name and role confirmed
+    text: "No worries at all, Priya! It's the Novalyte Men's Health Directory. We list clinics for free in the Austin area so local patients looking for hormone optimization and TRT can find care. I just wanted to get your permission to explain how this works and confirm your details?",
+    stage: "permission",
   },
   {
     timeSec: 32,
     speaker: "clinic",
-    text: "Oh, okay. I see. If it is free, I guess that is fine. What other details do you need to verify?",
-    stage: "discovery",
+    text: "Okay, go ahead. If it's free, I can give you a couple of minutes.",
+    stage: "directory",
     copilot: {
-      suggestion: "Verify the main location address and check what services they offer (e.g., TRT and Peptide therapy).",
-      question: "Confirm your main address is 1201 Congress Ave, and if you offer telehealth?",
-      facts: ["Clinic offers TRT, Peptide therapy, and Telehealth (from website research)"],
-      nextAction: "Verify address and services.",
+      suggestion: "Thank her. Explain that we match high-intent patients looking for TRT and Peptide therapy to qualified clinics.",
+      question: "Verify if your main address is 1201 Congress Ave and if you offer telehealth?",
+      facts: ["Directory explanation provided", "Permission to explain granted"],
+      nextAction: "Qualify clinic services and locations.",
+      speakingPace: "Pace is a bit fast (155 WPM). Try to slow down."
     }
   },
   {
-    timeSec: 42,
+    timeSec: 40,
     speaker: "you",
-    text: "Perfect. I have your main office address down as 1201 Congress Ave, Austin. Is that correct? And do you offer TRT, Peptide Therapy, and Telehealth at this location?",
-    stage: "discovery",
+    text: "Thank you, Priya. We match patients in Austin who are looking for specialized hormone therapy directly to providers. I have your main office address down as 1201 Congress Ave, Austin. Is that correct? And do you offer TRT and Peptide therapy at this location?",
+    stage: "qualification",
     checklistChecked: ["q4"], // Address verified
   },
   {
-    timeSec: 49,
+    timeSec: 47,
     speaker: "clinic",
-    text: "Yes, 1201 Congress Ave is correct. We offer TRT, Peptide Therapy, and IV hydration. We also do telehealth visits for Texas residents.",
-    stage: "discovery",
-    checklistChecked: ["q5", "q7"], // Telehealth and services confirmed
+    text: "Yes, 1201 Congress Ave is correct. We offer TRT, Peptide therapy, and IV hydration. We also support telehealth visits for residents of Texas.",
+    stage: "qualification",
+    checklistChecked: ["q5"], // Services verified
     copilot: {
-      suggestion: "Acknowledge the services. Ask about how patients book appointments (URL or phone).",
-      question: "Do patients book appointments via your website, or do they call in?",
-      nextAction: "Confirm booking process.",
+      suggestion: "Great! Do patients book appointments on your website, or do they call in? And can we include your booking link in the directory?",
+      question: "Ask for permission to list their booking URL.",
+      facts: ["Offers TRT, Peptides, IV, and Telehealth"],
+      nextAction: "Verify booking link.",
+      speakingPace: "Good (130 WPM)"
     }
   },
   {
-    timeSec: 58,
+    timeSec: 56,
     speaker: "you",
-    text: "Awesome, I've updated our system to show you offer TRT, Peptides, and Telehealth. How do patients typically book appointments with you? Do you have an online booking URL?",
-    stage: "discovery",
+    text: "That's fantastic. I've noted down that you offer TRT, Peptides, and Telehealth. How do patients typically book appointments with you? Do you have an online booking link we could feature in your profile?",
+    stage: "qualification",
   },
   {
-    timeSec: 65,
+    timeSec: 62,
     speaker: "clinic",
-    text: "They can book on our website at summitvitality.com/book, or just call us here.",
-    stage: "discovery",
-    checklistChecked: ["q6"], // Booking URL verified
+    text: "Yes, they can go to summitvitality.com/book. It's fully online.",
+    stage: "qualification",
+    checklistChecked: ["q6", "q7"], // Booking URL & Accepting patients confirmed
     copilot: {
-      suggestion: "Great. Now request explicit permission to publish the listing on our active directory.",
-      question: "May we list Summit Vitality as verified in the Novalyte directory?",
-      warning: "Important: You must obtain explicit permission to list the clinic before wrapping up.",
-      nextAction: "Get listing permission.",
+      suggestion: "Awesome, summitvitality.com/book. Priya, would it be okay if we list Summit Vitality as verified in the directory so we can start matching patients to you?",
+      question: "Request explicit permission to list the clinic in the directory.",
+      warning: "Ensure you ask for explicit directory permission before concluding the call.",
+      nextAction: "Get directory permission.",
+      speakingPace: "Good (135 WPM)"
     }
   },
   {
-    timeSec: 74,
+    timeSec: 72,
     speaker: "you",
-    text: "Perfect, summitvitality.com/book. Now, Priya, to send patients your way, we just need your permission to list Summit Vitality as verified in the directory. Is it okay to keep your profile active?",
+    text: "Perfect, summitvitality.com/book. I've updated your booking URL. Now, Priya, to send patients your way, we just need your permission to list Summit Vitality as a verified clinic in the directory. Is it okay to activate your profile?",
     stage: "agreement",
   },
   {
-    timeSec: 81,
+    timeSec: 78,
     speaker: "clinic",
-    text: "Yes, you have my permission to list us, as long as there are no monthly fees or hidden charges.",
+    text: "Wait, is this really free? Are there any hidden fees or commission percentages later on?",
+    stage: "objections",
+    copilot: {
+      suggestion: "The basic directory listing is free forever. We only charge if you choose to receive premium guaranteed patient leads later. Is it alright if we list you?",
+      question: "Address pricing concerns and re-ask for directory listing permission.",
+      objectionGuidance: "Objection: 'Hidden fees'. Response: State clearly that the directory profile is 100% free forever. Explain that paid packages are entirely optional and only apply to guaranteed lead generation.",
+      nextAction: "Re-confirm directory permission.",
+      speakingPace: "Good (130 WPM)"
+    }
+  },
+  {
+    timeSec: 86,
+    speaker: "you",
+    text: "That is a great question. The basic directory profile is 100% free forever, and there are no commissions. We only offer paid subscriptions if you want to receive extra, guaranteed patient leads down the line, but that is completely optional. Is it alright to publish the free listing?",
     stage: "agreement",
+  },
+  {
+    timeSec: 93,
+    speaker: "clinic",
+    text: "Yes, that sounds fine. You have my permission to list us as verified.",
+    stage: "interest",
     checklistChecked: ["q1"], // Permission to list granted!
     copilot: {
-      suggestion: "Confirm the basic directory profile is free forever, and get her direct email to send the verified link.",
-      question: "What is the best email address to send your verified listing link to?",
-      facts: ["Listing permission GRANTED"],
-      nextAction: "Get email address.",
+      suggestion: "Thank Priya. Get her direct email to send the confirmation link, and set a brief check-in follow-up next month.",
+      question: "Ask for direct email to send the directory link.",
+      facts: ["Permission to list GRANTED"],
+      nextAction: "Get email and schedule follow-up.",
+      speakingPace: "Good (125 WPM)"
     }
   },
   {
-    timeSec: 90,
+    timeSec: 101,
     speaker: "you",
-    text: "Absolutely, basic listing is 100% free forever. What is the best email to send your verified directory link to, so you can inspect your profile?",
-    stage: "agreement",
+    text: "Awesome, Priya. Thank you! I'll publish the verified badge immediately. What is the best email to send your verified directory profile link to, so you can check how it looks?",
+    stage: "scheduling",
   },
   {
-    timeSec: 96,
+    timeSec: 107,
     speaker: "clinic",
-    text: "You can send it to priya@summitvitality.com. And please follow up with us next month to see how it's going.",
-    stage: "closing",
-    copilot: {
-      suggestion: "Thank Priya, confirm the email is priya@summitvitality.com, and schedule a follow-up task for next month.",
-      question: "Conclude the call and wish her a great day.",
-      nextAction: "End call and log follow-up.",
-    }
-  },
-  {
-    timeSec: 105,
-    speaker: "you",
-    text: "Got it, priya@summitvitality.com. I will send that over immediately and set a reminder to follow up in mid-August. Thank you so much for your time, Priya. Have a wonderful day!",
-    stage: "closing",
+    text: "You can send it to priya@summitvitality.com. You can follow up with us next month to see how many patients clicked it.",
+    stage: "scheduling",
     checklistChecked: ["q12"], // Follow-up owner and date agreed
+    copilot: {
+      suggestion: "Perfect, priya@summitvitality.com. I will send that email now and schedule a check-in for next month. Thank you so much for your help!",
+      question: "Conclude the conversation and wish her a great day.",
+      nextAction: "Conclude call.",
+      speakingPace: "Good (130 WPM)"
+    }
   },
   {
-    timeSec: 111,
+    timeSec: 115,
+    speaker: "you",
+    text: "Excellent, priya@summitvitality.com. I will email that link over immediately and schedule our follow-up check-in for mid-August. Thank you so much for your time today, Priya. Have a wonderful day!",
+    stage: "closing",
+  },
+  {
+    timeSec: 121,
     speaker: "clinic",
-    text: "You too, Devon. Thanks! Bye-bye.",
+    text: "Thanks, Jamil. You too! Bye-bye.",
     stage: "closing",
     copilot: {
-      suggestion: "The call has concluded. Click 'End Call' to wrap up and log the call session.",
+      suggestion: "The call has ended. Click 'Hang Up' to review metrics and log this call session.",
       question: "End the call.",
-      nextAction: "Complete call logging.",
+      nextAction: "Hang up.",
+      speakingPace: "Good (130 WPM)"
     }
   }
 ];
@@ -207,7 +234,6 @@ export class TelephonySimulator {
   }
 
   private startTimer() {
-    // Start call duration tracking
     this.durationInterval = setInterval(() => {
       if (this.isPaused) return;
       this.elapsedSeconds += 1;
@@ -223,7 +249,7 @@ export class TelephonySimulator {
     if (this.elapsedSeconds >= nextTurn.timeSec) {
       // Emit transcript turn
       this.emit("transcript", {
-        speaker: nextTurn.speaker,
+        speaker: nextTurn.speaker === "you" ? "Jamil" : "Clinic",
         text: nextTurn.text,
         timestamp: new Date().toISOString()
       });
@@ -268,6 +294,13 @@ export class TelephonySimulator {
       clearTimeout(this.timer);
       this.timer = null;
     }
+
+    // Emit final metrics for logging when the call ends
+    this.emit("metrics", {
+      speakingListeningRatio: "54:46", // 54% Jamil, 46% Clinic WPM breakdown
+      callQualityScore: 92,
+      aiCoachingFeedback: "Excellent pacing and objection handling. Consistently hit your directory listing targets. Warning: You spoke slightly fast at 40s when qualifying, but adjusted well. Interruption count: 0."
+    });
   }
 
   private emit(type: SimulatorEvent["type"], payload: any) {

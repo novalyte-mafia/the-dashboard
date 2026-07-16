@@ -79,6 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         durationSec: Number(body.durationSec ?? 0),
       }),
       status: "saved",
+      structuredData: JSON.stringify(body.structuredData ?? {}),
     },
   });
 

@@ -53,6 +53,7 @@ import {
   ChevronRight,
   Flame,
   Info,
+  SlidersHorizontal,
 } from "lucide-react";
 import { clinicService, callService } from "@/services";
 import { CALL_OUTCOMES, OUTCOME_MAP } from "@/lib/constants";
@@ -61,7 +62,7 @@ import { toast } from "sonner";
 import type { Clinic, CallSession, CallState, CallOutcome } from "@/types";
 import { TelephonySimulator, SIMULATOR_DIALOGUE } from "@/lib/telephony-simulator";
 
-// Objections Library for quick human fallback reference
+// Private Objection cheat sheet for Jamil
 const OBJECTION_LIBRARY = [
   { id: "obj_1", text: "Send me info via email", response: "Happy to. I'll send a 1-page overview and our directory link. Can I book a 10-min follow-up Thursday?" },
   { id: "obj_2", text: "We already have a marketing agency", response: "Got it — most clinics we work with keep their agency for general marketing. We're a focused men's-health demand engine, not a replacement." },
@@ -108,17 +109,25 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   // Workspace details
   const [research, setResearch] = useState<string | null>(null);
   const [researchLoading, setResearchLoading] = useState(false);
-  const [expandedObjection, setExpandedObjection] = useState<string | null>(null);
 
-  // Live Copilot & Transcript
-  const [transcript, setTranscript] = useState<{ speaker: "you" | "clinic" | "copilot"; text: string; timestamp: string }[]>([]);
-  const [activeStage, setActiveStage] = useState<"intro" | "discovery" | "objections" | "agreement" | "closing">("intro");
-  const [copilotSuggestion, setCopilotSuggestion] = useState<string | null>("Place a call to start receiving live coaching tips.");
+  // Human-Led AI Copilot & Live Transcript
+  const [transcript, setTranscript] = useState<{ speaker: string; text: string; timestamp: string }[]>([]);
+  const [activeStage, setActiveStage] = useState<string>("intro");
+  
+  // Suggested response (strictly private, text-only, never speaks out loud)
+  const [copilotSuggestion, setCopilotSuggestion] = useState<string | null>("Start a call to receive private, suggested talk tracks.");
   const [copilotQuestion, setCopilotQuestion] = useState<string | null>(null);
   const [objectionGuidance, setObjectionGuidance] = useState<string | null>(null);
   const [clinicFacts, setClinicFacts] = useState<string[]>([]);
   const [copilotWarning, setCopilotWarning] = useState<string | null>(null);
   const [copilotNextAction, setCopilotNextAction] = useState<string | null>(null);
+
+  // Real-time voice metrics
+  const [speakingPace, setSpeakingPace] = useState<string>("Good (130 WPM)");
+  const [interruptionWarning, setInterruptionWarning] = useState<boolean>(false);
+  const [speakingListeningRatio, setSpeakingListeningRatio] = useState<string>("50:50");
+  const [callQualityScore, setCallQualityScore] = useState<number>(0);
+  const [aiCoachingFeedback, setAiCoachingFeedback] = useState<string | null>(null);
 
   // Notes, Checklist & Outcomes panel
   const [notes, setNotes] = useState("");
@@ -127,6 +136,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const [nextAction, setNextAction] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [qualification, setQualification] = useState<Record<string, boolean>>({});
+  const [expandedObjection, setExpandedObjection] = useState<string | null>(null);
 
   // Post-Call AI Summary
   const [postCallSummary, setPostCallSummary] = useState<{
@@ -169,7 +179,6 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       callService.listAll(),
     ])
       .then(([clinicsPayload, historyPayload]) => {
-        // Queue consists of clinics in outreach-related stages
         const clinicsList = clinicsPayload?.clinics || [];
         const filteredQueue = clinicsList.filter((c) =>
           ["ready_to_call", "attempted", "connected", "follow_up_required"].includes(c.pipelineStage) &&
@@ -206,7 +215,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     };
   }, [callState]);
 
-  // Production Vapi Status Polling
+  // Production Call Status Polling (No TTS, silent WebRTC or Call Bridging check)
   useEffect(() => {
     if (!isLiveMode || !providerCallId || callState === "ended" || callState === "idle") return;
     const poll = async () => {
@@ -231,11 +240,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     return () => window.clearInterval(interval);
   }, [providerCallId, callState, callSessionId, isLiveMode]);
 
-  // Development/Simulator Hook
+  // Development/Simulator Hook (Silent AI transcript and suggested coaching turns)
   useEffect(() => {
     if (isLiveMode) return;
     if (callState === "dialing" && !simulatorRef.current) {
-      // Initialize simulator
       const sim = new TelephonySimulator((event) => {
         switch (event.type) {
           case "status":
@@ -266,6 +274,15 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             setClinicFacts(event.payload.facts ?? []);
             setCopilotWarning(event.payload.warning ?? null);
             setCopilotNextAction(event.payload.nextAction ?? null);
+            if (event.payload.speakingPace) setSpeakingPace(event.payload.speakingPace);
+            if (event.payload.interruptionWarning !== undefined) {
+              setInterruptionWarning(event.payload.interruptionWarning);
+            }
+            break;
+          case "metrics":
+            setSpeakingListeningRatio(event.payload.speakingListeningRatio);
+            setCallQualityScore(event.payload.callQualityScore);
+            setAiCoachingFeedback(event.payload.aiCoachingFeedback);
             break;
         }
       });
@@ -281,27 +298,25 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     }
   }, [callState, isLiveMode]);
 
-  // Generate Post-Call AI Summary
+  // Post-Call AI Summary mapping (Extracts speaker ratios and coaching parameters)
   useEffect(() => {
     if (callState === "ended") {
       if (!isLiveMode) {
-        // Prebuilt mock summary for simulator
         setPostCallSummary({
-          whatHappened: "Devon contacted Summit Vitality Clinic and spoke with Priya, the Practice Manager. Verified Dr. Marcus Cole as the Medical Director and verified their listing information.",
-          objections: "Initial objection raised: 'We didn't sign up for this directory'. Clarified that the directory is free, which satisfied the objection.",
-          commitments: "Priya granted explicit permission to publish the clinic as verified in the Novalyte directory.",
-          sentiment: "Positive and helpful. Practice is open to patient matching.",
-          nextSteps: "Send verified directory profile link to priya@summitvitality.com and follow up next month.",
-          followUpMessage: "Hi Priya, thanks for taking the time to verify Summit Vitality Clinic today! Here is your listing verification link: directory.novalyte.io/summit-vitality. We will follow up next month. Best, Devon from Novalyte.",
+          whatHappened: "Jamil contacted Summit Vitality Clinic and spoke with Priya, the Practice Manager. Verified Dr. Marcus Cole as the Medical Director and verified their listing information.",
+          objections: "Objection raised: 'We didn't sign up for this directory'. Clarified that the directory is free, which resolved the objection.",
+          commitments: "Priya granted Jamil explicit permission to publish the clinic as verified in the Novalyte directory.",
+          sentiment: "Receptive and cooperative.",
+          nextSteps: "Email verified link to priya@summitvitality.com and follow up next month.",
+          followUpMessage: "Hi Priya, thanks for verifying Summit Vitality Clinic today! Here is your directory listing: directory.novalyte.io/summit-vitality. We'll follow up next month. Best, Jamil from Novalyte.",
         });
         setOutcome("interested");
         setInterestLevel("warm");
-        setNextAction("Send verification link & follow up next month");
+        setNextAction("Email verified listing link & follow up next month");
         setFollowUpDate(new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0]);
       } else {
-        // Live Mode: query GLM helper or backend summary
         setPostCallSummary({
-          whatHappened: "Call completed. Summary will be generated after saving the final log record.",
+          whatHappened: "Call completed. Summary details will process and populate upon saving log records.",
           objections: "None recorded.",
           commitments: "Review transcript details.",
           sentiment: "Neutral",
@@ -351,15 +366,20 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setTranscript([]);
     setPostCallSummary(null);
     setActiveStage("intro");
-    setCopilotSuggestion("Place a call to start receiving live coaching tips.");
+    setCopilotSuggestion("Start a call to receive private, suggested talk tracks.");
     setCopilotQuestion(null);
     setObjectionGuidance(null);
     setClinicFacts([]);
     setCopilotWarning(null);
     setCopilotNextAction(null);
+    setSpeakingPace("Good (130 WPM)");
+    setInterruptionWarning(false);
+    setSpeakingListeningRatio("50:50");
+    setCallQualityScore(0);
+    setAiCoachingFeedback(null);
   }
 
-  // Dialer functionality
+  // Dialer triggering
   async function startCall() {
     if (startingCallRef.current || callState !== "idle") return;
     if (!activeClinic?.primaryPhone) {
@@ -372,7 +392,6 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setCallState("configuring");
 
     if (isLiveMode) {
-      // Production live outbound API call
       try {
         const response = await fetch("/api/vapi/call", {
           method: "POST",
@@ -383,12 +402,12 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         if (payload.callSessionId) setCallSessionId(payload.callSessionId);
         if (!response.ok) {
           setCallState(payload.callSessionId ? "failed" : "idle");
-          toast.error(payload.error || "Vapi outbound call failed to start.");
+          toast.error(payload.error || "VOIP phone connection failed.");
           return;
         }
         setProviderCallId(payload.callId ?? null);
         setCallState("dialing");
-        toast.success(`Outgoing call triggered successfully.`);
+        toast.success(`VOIP Outbound bridged call triggered successfully.`);
       } catch (err) {
         setCallState("failed");
         toast.error("Telephony API not reachable.");
@@ -396,9 +415,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         startingCallRef.current = false;
       }
     } else {
-      // Simulator mode call initiation
       try {
-        // Create an attempt in database to verify Supabase connectivity in dev mode
         const response = await fetch("/api/vapi/call", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -407,7 +424,6 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         const payload = await response.json().catch(() => ({}));
         if (payload.callSessionId) {
           setCallSessionId(payload.callSessionId);
-          // Set status to dialing to signify simulated call
           await fetch(`/api/calls/${payload.callSessionId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -415,7 +431,6 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           }).catch(() => undefined);
         }
       } catch (e) {
-        // Silent fallback to local memory session ID if server APIs are offline
         setCallSessionId(`sim_${Math.random().toString(36).substring(2, 9)}`);
       }
       setCallState("dialing");
@@ -475,18 +490,16 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       setResearch(payload.research?.markdown || "No website data returned.");
       toast.success("Research profile updated.");
     } catch (err) {
-      // In dev mode fallback, display realistic research summary
       const mockResearch = `
 # Research Summary: ${activeClinic.name}
 *   **Website Status:** Online
 *   **Key Doctor:** Dr. Marcus Cole (Specialist in TRT and Peptide therapy)
-*   **Primary Locations:** Austin, TX (Main office), Houston (Satellite)
+*   **Primary Locations:** Austin, TX (Main office)
 *   **Telehealth Status:** Yes, supported for residents of Texas
 *   **Patient Intake:** Accepting new patients. Online booking links found at "/book"
-*   **Pricing Insights:** Standard consultation starts at $150, accepts Aetna and BCBS.
       `;
       setResearch(mockResearch);
-      toast.info("Mock research profile generated in simulator mode.");
+      toast.info("Simulated research profile generated.");
     } finally {
       setResearchLoading(false);
     }
@@ -515,6 +528,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         onboardingChecklist: qualification,
         transcript: transcript,
         postCallSummary: postCallSummary,
+        speakingListeningRatio,
+        callQualityScore,
+        aiCoachingFeedback,
+        directoryPermissionStatus: qualification.q1 ?? false,
+        bookingLinkPermissionStatus: qualification.q6 ?? false,
       },
     };
 
@@ -581,7 +599,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         <div>
           <h1 className="text-2xl font-bold tracking-tight">AI Calls Command Center</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Voice Copilot workspace for live clinic calling and automated database logging
+            Silent AI Voice Copilot workspace for human-operated calling and real-time coaching suggestions
           </p>
         </div>
 
@@ -598,7 +616,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   return;
                 }
                 setIsLiveMode(false);
-                toast.success("Switched to Simulated Development Mode.");
+                toast.success("Switched to Simulated Dev Mode (Jamil Operator Simulator).");
               }}
               className={`text-xs px-2.5 py-1 rounded font-medium transition-colors ${
                 !isLiveMode
@@ -615,7 +633,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   return;
                 }
                 setIsLiveMode(true);
-                toast.success("Switched to Live Production Mode.");
+                toast.success("Switched to Live Vapi Phone Bridging Mode.");
               }}
               className={`text-xs px-2.5 py-1 rounded font-medium transition-colors ${
                 isLiveMode
@@ -669,7 +687,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       {/* MAIN LAYOUT GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         
-        {/* LEFT COLUMN: Queue & History List (Desktop only, or visible when not calling on mobile) */}
+        {/* LEFT COLUMN: Queue & History List */}
         <Card className="lg:col-span-3 p-0 flex flex-col h-[65vh] lg:h-[calc(100vh-270px)] overflow-hidden shrink-0">
           <div className="border-b px-3 py-2 flex items-center justify-between bg-muted/20 shrink-0">
             <div className="flex items-center gap-1">
@@ -712,7 +730,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           <div className="flex-1 overflow-y-auto nv-scroll divide-y">
             {sidebarTab === "queue" ? (
               filteredQueue.length === 0 ? (
-                <EmptyState icon={PhoneCall} title="No clinics" description="Search returned no matching clinics." />
+                <EmptyState icon={PhoneCall} title="No clinics" description="Search returned no clinics." />
               ) : (
                 filteredQueue.map((clinic) => {
                   const withinHours = isWithinCallingHours(clinic.timezone);
@@ -773,7 +791,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           </div>
         </Card>
 
-        {/* CENTER COLUMN: Dialer console, Live transcript, and Talk tracks */}
+        {/* CENTER COLUMN: Dialer, Live Transcript & Stage tracks */}
         <div className={`lg:col-span-6 flex flex-col gap-4 ${mobileTab !== "dialer" ? "hidden lg:flex" : ""}`}>
           
           {/* ACTIVE CLINIC INFORMATION PROFILE */}
@@ -947,14 +965,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                       disabled={startingCallRef.current}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-6 h-11 rounded-lg flex items-center gap-2 shadow-lg"
                     >
-                      <Phone className="size-4" /> Start Call
+                      <Phone className="size-4" /> DUAL AUDIO BRIDGE
                     </Button>
                   ) : (
                     <Button
                       onClick={endCall}
                       className="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm px-6 h-11 rounded-lg flex items-center gap-2 shadow-lg"
                     >
-                      <PhoneOff className="size-4" /> Hang Up
+                      <PhoneOff className="size-4" /> End Bridge Call
                     </Button>
                   )}
                 </div>
@@ -1012,7 +1030,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
                   <button
                     onClick={() => {
-                      toast.warning("Transfer function not configured on active gateway.");
+                      toast.warning("Transfer option not configured.");
                     }}
                     disabled={callState === "ended" || callState === "dialing" || callState === "ringing"}
                     className="flex flex-col items-center justify-center p-2 rounded-lg hover:bg-slate-800 transition-colors"
@@ -1030,7 +1048,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 </div>
               )}
 
-              {/* Collapsible Dialer Keypad Pad */}
+              {/* Collapsible Keypad */}
               {dialPadOpen && callState !== "ended" && (
                 <div className="relative z-10 grid grid-cols-3 gap-2 max-w-[180px] mx-auto bg-slate-800 border border-slate-700 rounded-lg p-2.5 mt-2 animate-in fade-in-20 duration-150">
                   {["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"].map((key) => (
@@ -1052,40 +1070,45 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             </Card>
           )}
 
-          {/* ACTIVE REAL-TIME TRANSCRIPT PANEL */}
+          {/* SPEAKER-SEPARATED TRANSCRIPT PANEL (JAMIL VS CLINIC) */}
           {callState !== "idle" && (
-            <Card className="flex-1 flex flex-col p-0 min-h-[300px] max-h-[380px] overflow-hidden">
+            <Card className="flex-1 flex flex-col p-0 min-h-[320px] max-h-[390px] overflow-hidden">
               <div className="px-4 py-3 border-b bg-muted/20 flex items-center justify-between shrink-0">
                 <span className="text-sm font-bold flex items-center gap-1.5">
-                  <Activity className="size-4 text-primary animate-pulse" /> Live Call Transcript
+                  <Activity className="size-4 text-emerald-500 animate-pulse" /> Speaker-Separated Transcript
                 </span>
-                <Badge variant="secondary" className="font-mono text-[10px] font-semibold">
-                  {transcript.length} turns
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] text-emerald-700 border-emerald-200 bg-emerald-50">
+                    Jamil (Operator)
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px] text-slate-700 border-slate-200 bg-slate-50">
+                    Clinic (Priya)
+                  </Badge>
+                </div>
               </div>
 
-              {/* Scrolling transcript bubble workspace */}
+              {/* Scrolling transcript turns */}
               <div className="flex-1 overflow-y-auto nv-scroll p-4 bg-muted/5 space-y-3">
                 {transcript.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground text-xs p-6">
                     <Clock className="size-6 mb-1 text-slate-300 animate-pulse" />
-                    Waiting for call to connect...
+                    Waiting for call connection...
                   </div>
                 ) : (
                   transcript.map((line, idx) => {
-                    const isYou = line.speaker === "you";
+                    const isJamil = line.speaker === "Jamil";
                     return (
                       <div
                         key={idx}
-                        className={`flex flex-col max-w-[85%] ${isYou ? "ml-auto items-end" : "mr-auto items-start"}`}
+                        className={`flex flex-col max-w-[85%] ${isJamil ? "ml-auto items-end" : "mr-auto items-start"}`}
                       >
-                        <span className="text-[10px] text-muted-foreground font-semibold px-1 py-0.5">
-                          {isYou ? "You (Operator)" : "Clinic Receptionist (Priya)"}
+                        <span className="text-[9px] text-muted-foreground font-semibold px-1 py-0.5 uppercase tracking-wide">
+                          {line.speaker}
                         </span>
-                        <div className={`p-2.5 rounded-lg text-sm mt-0.5 ${
-                          isYou
-                            ? "bg-primary text-primary-foreground rounded-tr-none"
-                            : "bg-card border text-foreground rounded-tl-none shadow-sm"
+                        <div className={`p-2.5 rounded-lg text-sm mt-0.5 shadow-sm leading-relaxed ${
+                          isJamil
+                            ? "bg-indigo-600 text-white rounded-tr-none"
+                            : "bg-card border text-foreground rounded-tl-none"
                         }`}>
                           {line.text}
                         </div>
@@ -1099,7 +1122,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           )}
         </div>
 
-        {/* RIGHT COLUMN: AI Voice Copilot Panel, Qualification checklist, and Outcomes */}
+        {/* RIGHT COLUMN: AI Copilot Coaching & Talk tracks */}
         <div className={`lg:col-span-3 flex flex-col gap-4 ${mobileTab !== "copilot" ? "hidden lg:flex" : ""}`}>
           
           {/* DYNAMIC TALK TRACK STAGE PROGRESS */}
@@ -1108,28 +1131,29 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
                 Live Talk Track Stage
               </span>
-              <div className="flex items-center gap-1 mt-2">
+              <div className="grid grid-cols-4 gap-1 mt-2">
                 {[
                   { id: "intro", label: "Intro" },
-                  { id: "objections", label: "Objections" },
-                  { id: "discovery", label: "Discovery" },
-                  { id: "agreement", label: "Agreement" },
-                  { id: "closing", label: "Closing" },
+                  { id: "permission", label: "Perm" },
+                  { id: "directory", label: "Direct" },
+                  { id: "qualification", label: "Qual" },
+                  { id: "objections", label: "Object" },
+                  { id: "interest", label: "Interest" },
+                  { id: "scheduling", label: "Sched" },
+                  { id: "closing", label: "Close" },
                 ].map((s, idx) => {
                   const isActive = activeStage === s.id;
                   return (
-                    <div key={s.id} className="flex-1 flex items-center gap-1">
-                      {idx > 0 && <ChevronRight className="size-3 text-muted-foreground/30" />}
-                      <div
-                        className={`flex-1 text-center py-1 rounded text-[10px] font-semibold uppercase ${
-                          isActive
-                            ? "bg-indigo-600 text-white shadow-sm"
-                            : "bg-muted text-muted-foreground/70"
-                        }`}
-                        title={s.label}
-                      >
-                        {s.label}
-                      </div>
+                    <div
+                      key={s.id}
+                      className={`text-center py-1 rounded text-[9px] font-bold uppercase border transition-all ${
+                        isActive
+                          ? "bg-indigo-600 text-white border-indigo-700 shadow-sm font-black scale-105"
+                          : "bg-muted text-muted-foreground/60 border-transparent"
+                      }`}
+                      title={s.label}
+                    >
+                      {s.label}
                     </div>
                   );
                 })}
@@ -1137,41 +1161,59 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             </Card>
           )}
 
-          {/* AI VOICE COPILOT CARD */}
+          {/* AI VOICE COPILOT WORKSPACE (PRIVATE GLASSMORPHISM SCREEN - NO SPEAKER PLAYBACK) */}
           {activeClinic && (
-            <Card className="p-4 bg-gradient-to-br from-indigo-50/40 via-purple-50/10 to-indigo-50/10 border-indigo-100 flex flex-col gap-3.5 relative overflow-hidden">
+            <Card className="p-4 bg-gradient-to-br from-indigo-50/50 via-purple-50/10 to-indigo-50/10 border-indigo-100 flex flex-col gap-3.5 relative overflow-hidden shadow-sm">
               <div className="absolute top-0 right-0 p-2 opacity-5 pointer-events-none">
                 <Sparkles className="size-16 text-indigo-700" />
               </div>
 
-              <div className="flex items-center gap-2 border-b pb-2 shrink-0">
-                <div className="size-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-700 shrink-0 shadow-sm border border-indigo-200">
-                  <Sparkles className="size-4 text-indigo-700 fill-indigo-700/20" />
+              <div className="flex items-center justify-between border-b pb-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="size-8 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-700 shrink-0 border border-indigo-200">
+                    <Sparkles className="size-4 text-indigo-700 fill-indigo-700/20" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">AI Voice Copilot</h3>
+                    <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wide">SILENT Private Coach</span>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">AI Voice Copilot</h3>
-                  <span className="text-[10px] text-muted-foreground uppercase font-semibold">Active Assistance Coach</span>
-                </div>
+                <Badge variant="secondary" className="bg-indigo-100 text-indigo-800 text-[9px] uppercase border border-indigo-200">
+                  Human-Led Mode
+                </Badge>
               </div>
 
               {/* Warnings Panel */}
-              {copilotWarning && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-lg p-2.5 text-xs flex items-start gap-2 animate-bounce">
-                  <AlertTriangle className="size-4 shrink-0 text-rose-500 mt-0.5" />
-                  <div>
-                    <span className="font-bold">Missed Checklist Warning:</span>
-                    <p className="mt-0.5">{copilotWarning}</p>
-                  </div>
+              {(copilotWarning || interruptionWarning) && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-lg p-2.5 text-xs flex flex-col gap-1.5 animate-in slide-in-from-top-2 duration-200">
+                  {interruptionWarning && (
+                    <div className="flex items-start gap-1.5">
+                      <AlertTriangle className="size-4 shrink-0 text-rose-500 mt-0.5" />
+                      <div>
+                        <span className="font-bold">Interruption warning:</span>
+                        <p className="text-[11px] text-rose-700 mt-0.5">You interrupted the clinic representative. Let them finish speaking.</p>
+                      </div>
+                    </div>
+                  )}
+                  {copilotWarning && (
+                    <div className="flex items-start gap-1.5">
+                      <AlertTriangle className="size-4 shrink-0 text-rose-500 mt-0.5" />
+                      <div>
+                        <span className="font-bold">Missing qualification warning:</span>
+                        <p className="text-[11px] text-rose-700 mt-0.5">{copilotWarning}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Suggestions workspace */}
-              <div className="space-y-3 text-xs">
+              {/* SUGGESTED RESPONSE (PRIVATE - JAMIL READS) */}
+              <div className="space-y-3.5 text-xs">
                 <div>
-                  <p className="text-[10px] text-indigo-700 font-bold uppercase tracking-wide flex items-center gap-1.5">
-                    <CheckCircle2 className="size-3.5 text-indigo-600" /> Suggested Talk Sentence
+                  <p className="text-[10px] text-indigo-700 font-bold uppercase tracking-wide flex items-center gap-1">
+                    <CheckCircle2 className="size-3.5 text-indigo-600" /> SUGGESTED RESPONSE (Read Out Loud)
                   </p>
-                  <div className="bg-card border border-indigo-100/60 p-2.5 rounded-lg text-slate-700 italic font-medium mt-1 relative group">
+                  <div className="bg-white border border-indigo-100 p-3 rounded-lg text-slate-800 italic font-medium mt-1 relative group shadow-sm leading-relaxed">
                     "{copilotSuggestion}"
                     <Button
                       variant="ghost"
@@ -1179,11 +1221,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                       onClick={() => {
                         if (copilotSuggestion) {
                           navigator.clipboard.writeText(copilotSuggestion);
-                          toast.success("Suggested response copied to clipboard!");
+                          toast.success("Suggested response copied!");
                         }
                       }}
                       className="absolute right-1 bottom-1 size-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Copy suggestion"
+                      title="Copy suggested response"
                     >
                       <Send className="size-3 text-muted-foreground" />
                     </Button>
@@ -1195,7 +1237,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                     <p className="text-[10px] text-purple-700 font-bold uppercase tracking-wide">
                       Recommended Follow-Up Question
                     </p>
-                    <p className="text-slate-700 bg-purple-50/30 border border-purple-100/60 p-2.5 rounded-lg font-medium mt-1">
+                    <p className="text-slate-800 bg-purple-50/20 border border-purple-100/60 p-2.5 rounded-lg font-medium mt-1 leading-relaxed">
                       {copilotQuestion}
                     </p>
                   </div>
@@ -1204,16 +1246,28 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 {objectionGuidance && (
                   <div className="bg-amber-50 border border-amber-200 text-amber-900 p-2.5 rounded-lg">
                     <span className="font-bold text-[10px] text-amber-800 uppercase tracking-wide flex items-center gap-1">
-                      <Flame className="size-3 text-amber-600 fill-amber-600/30" /> Objection guidance
+                      <Flame className="size-3 text-amber-600 fill-amber-600/30" /> Objection handling guide
                     </span>
                     <p className="mt-1 font-medium leading-relaxed">{objectionGuidance}</p>
                   </div>
                 )}
 
+                {/* Real-time Voice Coach Indicators */}
+                <div className="border-t pt-3 grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-500">
+                  <div className="bg-muted/40 p-2 rounded border">
+                    <span className="text-[9px] uppercase text-muted-foreground">Speaking Pace</span>
+                    <p className="text-slate-800 font-bold mt-0.5">{speakingPace}</p>
+                  </div>
+                  <div className="bg-muted/40 p-2 rounded border">
+                    <span className="text-[9px] uppercase text-muted-foreground">Talk/Listen Ratio</span>
+                    <p className="text-slate-800 font-bold mt-0.5">{speakingListeningRatio}</p>
+                  </div>
+                </div>
+
                 {clinicFacts.length > 0 && (
                   <div className="border-t pt-3">
                     <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wide">
-                      Quick Clinic Facts
+                      Mentioned Clinic Facts
                     </p>
                     <ul className="list-disc pl-4 space-y-1 text-slate-600 mt-1.5 font-medium">
                       {clinicFacts.map((fact, idx) => (
@@ -1225,7 +1279,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
                 {copilotNextAction && (
                   <div className="border-t pt-3 flex items-center justify-between text-[11px]">
-                    <span className="font-semibold text-muted-foreground">Next Action:</span>
+                    <span className="font-semibold text-muted-foreground">Next Step:</span>
                     <span className="text-indigo-600 font-bold uppercase tracking-wide">{copilotNextAction}</span>
                   </div>
                 )}
@@ -1237,25 +1291,28 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           {activeClinic && callState === "connected" && (
             <Card className="p-3">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                <BookOpen className="size-3.5" /> Objection Cheat Sheet
+                <BookOpen className="size-3.5" /> Quick Objection Cheat Sheet
               </h4>
-              <div className="space-y-1 mt-2 max-h-[140px] overflow-y-auto nv-scroll text-xs">
-                {OBJECTION_LIBRARY.map((obj) => (
-                  <div key={obj.id} className="border-b last:border-0 pb-1.5 last:pb-0 pt-1.5 first:pt-0">
-                    <button
-                      onClick={() => setExpandedObjection(expandedObjection === obj.id ? null : obj.id)}
-                      className="w-full text-left font-semibold text-slate-700 hover:text-primary flex items-center justify-between"
-                    >
-                      <span>{obj.text}</span>
-                      <ChevronRight className={`size-3 transition-transform ${expandedObjection === obj.id ? "rotate-90" : ""}`} />
-                    </button>
-                    {expandedObjection === obj.id && (
-                      <p className="text-[11px] bg-slate-50 border p-2 rounded text-slate-600 mt-1 italic">
-                        {obj.response}
-                      </p>
-                    )}
-                  </div>
-                ))}
+              <div className="space-y-1.5 mt-2 max-h-[140px] overflow-y-auto nv-scroll text-xs">
+                {OBJECTION_LIBRARY.map((obj) => {
+                  const isExpanded = expandedObjection === obj.id;
+                  return (
+                    <div key={obj.id} className="border-b last:border-0 pb-1.5 last:pb-0 pt-1.5 first:pt-0">
+                      <button
+                        onClick={() => setExpandedObjection(isExpanded ? null : obj.id)}
+                        className="w-full text-left font-semibold text-slate-700 hover:text-primary flex items-center justify-between"
+                      >
+                        <span>{obj.text}</span>
+                        <ChevronRight className={`size-3 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                      </button>
+                      {isExpanded && (
+                        <p className="text-[11px] bg-slate-50 border p-2 rounded text-slate-600 mt-1 italic leading-relaxed">
+                          {obj.response}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </Card>
           )}
@@ -1301,13 +1358,36 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             </Card>
           )}
 
-          {/* POST-CALL SUMMARY CARD (shown when call finishes) */}
+          {/* POST-CALL SUMMARY CARD */}
           {postCallSummary && (
             <Card className="p-4 border-indigo-100 bg-indigo-50/20 flex flex-col gap-3 animate-in fade-in-20 duration-200">
-              <div className="flex items-center gap-1.5 border-b pb-2">
-                <Sparkles className="size-4 text-indigo-600" />
-                <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wide">Post-Call AI Summary</h4>
+              <div className="flex items-center justify-between border-b pb-2">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="size-4 text-indigo-600" />
+                  <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wide">Post-Call AI Summary</h4>
+                </div>
+                {callQualityScore > 0 && (
+                  <Badge className="bg-indigo-600 text-white text-[9px]">
+                    Quality: {callQualityScore}/100
+                  </Badge>
+                )}
               </div>
+
+              {/* Human-Led metrics summaries */}
+              {speakingListeningRatio !== "50:50" && (
+                <div className="bg-white border rounded p-2 text-[10px] space-y-1">
+                  <div className="flex items-center justify-between text-slate-500 font-semibold">
+                    <span>Talk Ratio: {speakingListeningRatio}</span>
+                    <span>Pacing: Normal</span>
+                  </div>
+                  {aiCoachingFeedback && (
+                    <p className="text-indigo-900 leading-normal italic mt-1 font-medium">
+                      "{aiCoachingFeedback}"
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2 text-xs text-slate-700 overflow-y-auto max-h-[220px] nv-scroll pr-1">
                 <div>
                   <span className="font-bold text-indigo-900">What Happened:</span>
@@ -1326,8 +1406,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   <p className="mt-0.5 leading-relaxed">{postCallSummary.sentiment}</p>
                 </div>
                 <div>
-                  <span className="font-bold text-indigo-900">Draft Follow-Up Message:</span>
-                  <div className="bg-card border p-2 rounded text-[11px] font-mono whitespace-pre-line mt-1 relative group text-slate-600 select-all">
+                  <span className="font-bold text-indigo-900">Draft Follow-Up Email:</span>
+                  <div className="bg-card border p-2 rounded text-[11px] font-mono whitespace-pre-line mt-1 relative group text-slate-600 select-all leading-normal">
                     {postCallSummary.followUpMessage}
                   </div>
                 </div>
@@ -1412,7 +1492,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                     Next Follow-up Action
                   </label>
                   <Input
-                    placeholder="e.g., Send brochure via email"
+                    placeholder="e.g., Send verified profile URL"
                     value={nextAction}
                     onChange={(e) => setNextAction(e.target.value)}
                     className="h-8 text-xs"
@@ -1437,7 +1517,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   Operator Call Notes
                 </label>
                 <Textarea
-                  placeholder="Record summary notes of objections, key conversation facts, decision maker name..."
+                  placeholder="Record call summaries, receptionist names, specific clinic requests..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="min-h-[75px] text-xs resize-none"
@@ -1460,65 +1540,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   );
 }
 
-// Helpers
-
 function formatDuration(s: number): string {
   const mins = Math.floor(s / 60);
   const secs = s % 60;
   return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
-function ContactItem({
-  icon: Icon,
-  label,
-  value,
-  tone = "default",
-}: {
-  icon: any;
-  label: string;
-  value: string;
-  tone?: "default" | "ok" | "warn";
-}) {
-  return (
-    <div>
-      <span className="text-[10px] text-muted-foreground uppercase font-semibold block">{label}</span>
-      <span className={`font-semibold flex items-center gap-1 mt-0.5 leading-none truncate ${
-        tone === "ok" ? "text-emerald-700" : tone === "warn" ? "text-amber-700" : "text-foreground"
-      }`}>
-        <Icon className="size-3.5 shrink-0 opacity-60" /> {value}
-      </span>
-    </div>
-  );
-}
-
-function CallStateIndicator({ state, duration }: { state: CallState; duration: number }) {
-  const getBadgeColors = () => {
-    switch (state) {
-      case "connected":
-        return "bg-emerald-50 text-emerald-800 border-emerald-200 animate-pulse";
-      case "dialing":
-      case "ringing":
-      case "configuring":
-        return "bg-amber-50 text-amber-800 border-amber-200";
-      case "ended":
-        return "bg-slate-100 text-slate-800 border-slate-200";
-      case "on_hold":
-        return "bg-amber-100 text-amber-800 border-amber-200";
-      default:
-        return "bg-slate-50 text-slate-500 border-slate-200";
-    }
-  };
-
-  return (
-    <div className="flex flex-col items-center justify-center p-3 text-center">
-      <Badge className={`text-xs uppercase font-mono px-3 py-1 border ${getBadgeColors()}`}>
-        {state.replace(/_/g, " ")}
-      </Badge>
-      {state !== "idle" && (
-        <span className="text-3xl font-mono font-bold text-foreground mt-3 tracking-widest leading-none">
-          {formatDuration(duration)}
-        </span>
-      )}
-    </div>
-  );
 }
