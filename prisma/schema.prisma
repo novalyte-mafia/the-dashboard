@@ -267,7 +267,18 @@ model CallSession {
   doNotCall                   Boolean  @default(false)
   invalidNumber               Boolean  @default(false)
   adminId                     String?
+  provider                    String   @default("vapi")
+  providerCallId              String?
+  status                      String   @default("initiated") // initiated | configuring | connecting | ringing | connected | reconnecting | ended | failed | provider_unavailable | microphone_denied | transcription_unavailable | ai_unavailable | saving | saved | save_failed
+  failureCode                 String?
+  failureMessage              String?
+  transcript                  String   @default("[]")
+  aiSuggestions              String   @default("[]")
+  structuredData              String   @default("{}")
+  metadata                    String   @default("{}")
+  recordingUrl                String?
   createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
 
   clinic  Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   contact ClinicContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
@@ -275,6 +286,8 @@ model CallSession {
 
   @@index([clinicId])
   @@index([adminId])
+  @@index([status, startedAt])
+  @@index([providerCallId])
 }
 
 // ---------------------------------------------------------------------------

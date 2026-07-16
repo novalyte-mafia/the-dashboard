@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionAdmin } from "@/lib/auth";
+import { getSessionAdmin, requireAdminRole } from "@/lib/auth";
 import { logActivity } from "@/lib/data";
 
 export async function GET(req: NextRequest) {
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const admin = await getSessionAdmin();
+  const admin = await requireAdminRole(["admin", "operations", "sales"]);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = (await req.json()) as Record<string, unknown>;
   if (!body.name) return NextResponse.json({ error: "Deal name required" }, { status: 400 });

@@ -48,9 +48,13 @@ export function DirectoryView() {
   }, [stage, refreshKey]);
 
   async function updateStatus(id: string, listingStatus: string) {
-    // Mock update — toast and refresh
-    toast.success(`Listing status → ${directoryStageLabel(listingStatus)}`);
-    refresh();
+    try {
+      await directoryService.update(id, { listingStatus });
+      toast.success(`Listing status → ${directoryStageLabel(listingStatus)}`);
+      refresh();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update listing status");
+    }
   }
 
   return (

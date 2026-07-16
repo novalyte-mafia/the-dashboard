@@ -126,12 +126,23 @@ export function ImportCenterView() {
   }
 
   function startImport() {
-    toast.success(`Importing ${fileName}…`);
-    setStep("upload");
-    setFileName(null);
-    setTimeout(() => {
-      toast.success("Import queued — you'll see new clinics in the clinics list shortly.");
-    }, 1500);
+    const promise = fetch("/api/clinics/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dryRun: false })
+    }).then(async (r) => {
+      const res = await r.json();
+      if (!r.ok || !res.success) throw new Error(res.error || "Import failed");
+      setStep("upload");
+      setFileName(null);
+      return res;
+    });
+
+    toast.promise(promise, {
+      loading: `Importing ${fileName || "CSV file"}...`,
+      success: (data) => `Import completed! ${data.imported} clinics imported, ${data.duplicates} duplicates skipped.`,
+      error: (err) => `Failed: ${err.message}`
+    });
   }
 
   function downloadTemplate() {

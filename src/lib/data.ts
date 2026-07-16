@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { getSessionAdmin } from "@/lib/auth";
+import { getSessionAdmin, requireAdminRole } from "@/lib/auth";
 import {
   formatCurrency,
   formatCurrencyFull,
@@ -104,3 +104,5 @@ export async function recalcReadiness(clinicId: string) {
 export async function requireAdmin() {
   return getSessionAdmin();
 }
+
+export { requireAdminRole };

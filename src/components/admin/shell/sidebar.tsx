@@ -167,6 +167,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "call-analytics", label: "Call Analytics", icon: PhoneCall },
       { id: "patient-analytics", label: "Patient Analytics", icon: Users },
       { id: "geographic-analytics", label: "Geographic Analytics", icon: MapPin },
+      { id: "live-website-activity", label: "Live Website Activity", icon: ActivityIcon },
     ],
   },
   {
@@ -255,7 +256,7 @@ export function Sidebar({
                         key={item.id}
                         onClick={() => { navigate(item.id); setMobileOpen(false); }}
                         className={cn(
-                          "w-full flex items-center gap-3 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                          "w-full flex items-center gap-3 rounded-md px-2.5 py-2.5 min-h-11 text-sm transition-colors",
                           collapsed && "justify-center px-2",
                           active
                             ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
@@ -316,10 +317,10 @@ export function Sidebar({
         </div>
       </aside>
 
-      <div className="lg:hidden flex items-center">
+      <div className="fixed left-1 top-[calc(4.5rem+env(safe-area-inset-top))] z-50 lg:hidden">
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="ml-1"><Menu className="size-5" /></Button>
+            <Button variant="outline" size="icon" aria-label="Open navigation" className="size-10 bg-background/95 shadow-sm"><Menu className="size-5" /></Button>
           </SheetTrigger>
           <SheetContent side="left" className="w-72 p-0">
             <SheetTitle className="sr-only">Navigation</SheetTitle>

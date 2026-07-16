@@ -38,7 +38,7 @@ import { toast } from "sonner";
 import type { Clinic } from "@/types";
 
 export function CallQueueView() {
-  const { openClinic, openLogCall, refresh, refreshKey } = useNav();
+  const { openClinic, navigate, refresh, refreshKey } = useNav();
   const [queue, setQueue] = useState<Clinic[]>([]);
   const [loading, setLoading] = useState(true);
   const [state, setState] = useState("");
@@ -48,19 +48,7 @@ export function CallQueueView() {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
-      clinicService.list({ stage: "ready_to_call" }),
-      clinicService.list({ stage: "attempted" }),
-      clinicService.list({ stage: "connected" }),
-      clinicService.list({ stage: "follow_up_required" }),
-    ]).then(([r, a, c, f]) => {
-      // Dedupe by id
-      const map = new Map<string, Clinic>();
-      for (const cl of [...r.clinics, ...a.clinics, ...c.clinics, ...f.clinics]) {
-        map.set(cl.id, cl);
-      }
-      setQueue(Array.from(map.values()));
-    }).finally(() => setLoading(false));
+    clinicService.queue().then(({ queue }) => setQueue(queue)).finally(() => setLoading(false));
   }, [refreshKey]);
 
   const filtered = useMemo(() => {
@@ -74,9 +62,18 @@ export function CallQueueView() {
 
   const readyCount = queue.filter((c) => isWithinCallingHours(c.timezone)).length;
 
-  function quickAction(clinic: Clinic, action: "do_not_call" | "not_interested" | "invalid") {
+  async function quickAction(clinic: Clinic, action: "do_not_call" | "not_interested" | "invalid") {
     const labelMap = { do_not_call: "Do Not Call", not_interested: "Not Interested", invalid: "Invalid" };
-    toast.success(`Marked ${clinic.name} → ${labelMap[action]}`);
+    const response = await fetch(`/api/clinics/${clinic.id}/stage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ toStage: action, note: `Quick action: ${labelMap[action]}` }),
+    });
+    if (!response.ok) {
+      toast.error(`Could not update ${clinic.name}`);
+      return;
+    }
+    toast.success(`Saved ${clinic.name} → ${labelMap[action]}`);
     refresh();
   }
 
@@ -215,8 +212,8 @@ export function CallQueueView() {
                 )}
 
                 <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t">
-                  <Button size="sm" onClick={() => openLogCall(q.id, dm?.id)} disabled={!within}>
-                    <PhoneOutgoing className="size-3.5" /> Log Call
+                  <Button size="sm" onClick={() => navigate("call-console", q.id)} disabled={!within || !q.primaryPhone}>
+                    <PhoneOutgoing className="size-3.5" /> Call
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => openClinic(q.id)}>
                     <ExternalLink className="size-3.5" /> Open

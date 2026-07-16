@@ -17,6 +17,7 @@ import type { CallSession, Clinic, FollowUpTask, ActivityEvent } from "@/types";
 import { formatCurrency, formatCurrencyFull, relativeTime, formatDateTime, localTime, isWithinCallingHours } from "@/lib/format";
 import { OUTCOME_MAP } from "@/lib/constants";
 import { toast } from "sonner";
+import { appConfig } from "@/config/app-config";
 
 type OverviewData = Awaited<ReturnType<typeof dashboardService.getOverview>>;
 
@@ -54,7 +55,7 @@ export function OverviewView() {
     <div>
       <PageHeader
         title="Command Center"
-        description="Real-time view of revenue operations — what needs your attention today"
+        description={appConfig.dataMode === "hybrid" ? "Live clinic pipeline with demo planning data for unfinished modules" : "Real-time view of revenue operations — what needs your attention today"}
         action={
           <Button onClick={() => navigate("call-queue")}>
             <PhoneCall className="size-4" />
@@ -82,7 +83,7 @@ export function OverviewView() {
       {/* Conversion metrics row */}
       <SectionCard
         title="Conversion Metrics"
-        description="Funnel benchmarks across the sales process"
+        description={appConfig.demoOperations ? "Demo benchmarks — not calculated from live clinic activity" : "Funnel benchmarks across the sales process"}
         className="mb-6"
         bodyClassName="p-0"
       >
@@ -102,7 +103,7 @@ export function OverviewView() {
         {/* Today's Priorities */}
         <SectionCard
           title="Today's Priorities"
-          description="Generated from live records"
+          description={appConfig.demoOperations ? "Live clinic queue + demo operational priorities" : "Generated from live records"}
           className="lg:col-span-2"
           bodyClassName="p-0"
           action={<Button variant="ghost" size="sm" onClick={() => navigate("priorities")}>View all <ArrowRight className="size-3.5" /></Button>}
@@ -209,7 +210,7 @@ export function OverviewView() {
         {/* Recent Calls */}
         <SectionCard
           title="Recent Calls"
-          description={`${data.recentCalls.length} most recent`}
+          description={appConfig.demoOperations ? "Demo call history" : `${data.recentCalls.length} most recent`}
           bodyClassName="p-0"
           className="lg:col-span-2"
           action={<Button variant="ghost" size="sm" onClick={() => navigate("call-queue")}>All calls <ArrowRight className="size-3.5" /></Button>}
@@ -229,7 +230,7 @@ export function OverviewView() {
       {/* Recent Activity */}
       <SectionCard
         title="Recent Activity"
-        description="Immutable history"
+        description={appConfig.demoOperations ? "Demo activity history" : "Immutable history"}
         bodyClassName="p-0"
         action={<Button variant="ghost" size="sm" onClick={() => navigate("activity")}>View all <ArrowRight className="size-3.5" /></Button>}
       >

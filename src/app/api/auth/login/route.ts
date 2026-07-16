@@ -1,23 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
-import { verifyPassword, createSessionToken, setSessionCookie } from "@/lib/auth";
+import { createSessionToken, setSessionCookie } from "@/lib/auth";
 import { logActivity } from "@/lib/data";
 
 const schema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+  accessCode: z.string().min(1).max(128),
 });
+
+function isValidAccessCode(candidate: string) {
+  const configured = process.env.NOVALYTE_ACCESS_CODE?.trim();
+  if (!configured) return false;
+  const candidateBuffer = Buffer.from(candidate);
+  const configuredBuffer = Buffer.from(configured);
+  return candidateBuffer.length === configuredBuffer.length && timingSafeEqual(candidateBuffer, configuredBuffer);
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body = schema.parse(await req.json());
-    const admin = await db.adminMember.findUnique({ where: { email: body.email.toLowerCase() } });
+    if (!isValidAccessCode(body.accessCode)) {
+      return NextResponse.json({ error: "Invalid access code." }, { status: 401 });
+    }
+    const configuredEmail = process.env.NOVALYTE_ADMIN_EMAIL?.trim().toLowerCase();
+    const admin = configuredEmail
+      ? await db.adminMember.findUnique({ where: { email: configuredEmail } })
+      : await db.adminMember.findFirst({ where: { status: "active" }, orderBy: { createdAt: "asc" } });
     if (!admin || admin.status !== "active") {
       return NextResponse.json({ error: "Invalid credentials or inactive account." }, { status: 401 });
-    }
-    if (!verifyPassword(body.password, admin.passwordHash)) {
-      return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
     }
     await db.adminMember.update({
       where: { id: admin.id },

@@ -66,7 +66,7 @@ import type {
 } from "@/types";
 
 export function ClinicDetailView({ clinicId }: { clinicId?: string | null }) {
-  const { navigate, openLogCall, refresh, refreshKey } = useNav();
+  const { navigate, refresh, refreshKey } = useNav();
   const [clinic, setClinic] = useState<Clinic | null>(null);
   const [calls, setCalls] = useState<CallSession[]>([]);
   const [followUps, setFollowUps] = useState<FollowUpTask[]>([]);
@@ -165,8 +165,8 @@ export function ClinicDetailView({ clinicId }: { clinicId?: string | null }) {
                 ))}
               </SelectContent>
             </Select>
-            <Button onClick={() => openLogCall(clinicId)} disabled={clinic.doNotCall}>
-              <PhoneCall className="size-4" /> Log Call
+            <Button onClick={() => navigate("call-console", clinicId)} disabled={clinic.doNotCall || !clinic.primaryPhone}>
+              <PhoneCall className="size-4" /> Start Call
             </Button>
           </div>
         </div>
@@ -316,8 +316,8 @@ export function ClinicDetailView({ clinicId }: { clinicId?: string | null }) {
           <Card className="p-0">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <h3 className="text-sm font-semibold">Call History</h3>
-              <Button size="sm" onClick={() => openLogCall(clinicId)} disabled={clinic.doNotCall}>
-                <PhoneCall className="size-4" /> Log Call
+              <Button size="sm" onClick={() => navigate("call-console", clinicId)} disabled={clinic.doNotCall || !clinic.primaryPhone}>
+                <PhoneCall className="size-4" /> Start Call
               </Button>
             </div>
             {calls.length === 0 ? (

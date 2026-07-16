@@ -3,7 +3,6 @@
 import { createContext, useContext, useMemo, useState, useCallback, lazy, Suspense } from "react";
 import { Sidebar } from "@/components/admin/shell/sidebar";
 import { AdminHeader } from "@/components/admin/shell/header";
-import { LogCallDialog } from "@/components/admin/log-call-dialog";
 import { LoadingState } from "@/components/admin/shared";
 import { appConfig } from "@/config/app-config";
 
@@ -26,7 +25,6 @@ type NavState = {
 type NavContextValue = {
   navigate: (view: ViewId, clinicId?: string | null, params?: Record<string, unknown>) => void;
   openClinic: (clinicId: string) => void;
-  openLogCall: (clinicId?: string, contactId?: string) => void;
   refreshKey: number;
   refresh: () => void;
   admin: AdminUser;
@@ -121,6 +119,7 @@ const OutreachAnalyticsView = lazy(() => import("@/components/admin/views/outrea
 const CallAnalyticsView = lazy(() => import("@/components/admin/views/call-analytics").then((m) => ({ default: m.CallAnalyticsView })));
 const PatientAnalyticsView = lazy(() => import("@/components/admin/views/patient-analytics").then((m) => ({ default: m.PatientAnalyticsView })));
 const GeographicAnalyticsView = lazy(() => import("@/components/admin/views/geographic-analytics").then((m) => ({ default: m.GeographicAnalyticsView })));
+const LiveWebsiteActivityView = lazy(() => import("@/components/admin/views/live-website-activity").then((m) => ({ default: m.LiveWebsiteActivityView })));
 const SettingsView = lazy(() => import("@/components/admin/views/settings").then((m) => ({ default: m.SettingsView })));
 const TeamAccessView = lazy(() => import("@/components/admin/views/team-access").then((m) => ({ default: m.TeamAccessView })));
 const IntegrationsView = lazy(() => import("@/components/admin/views/integrations").then((m) => ({ default: m.IntegrationsView })));
@@ -208,6 +207,7 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "call-analytics": CallAnalyticsView,
   "patient-analytics": PatientAnalyticsView,
   "geographic-analytics": GeographicAnalyticsView,
+  "live-website-activity": LiveWebsiteActivityView,
   "settings": SettingsView,
   "team-access": TeamAccessView,
   "integrations": IntegrationsView,
@@ -219,7 +219,6 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
 export function AdminApp({ admin }: { admin: AdminUser }) {
   const [nav, setNav] = useState<NavState>({ view: "overview", clinicId: null });
   const [refreshKey, setRefreshKey] = useState(0);
-  const [logCall, setLogCall] = useState<{ clinicId?: string; contactId?: string } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const navigate = useCallback((view: ViewId, clinicId: string | null = null, params?: Record<string, unknown>) => {
@@ -232,15 +231,11 @@ export function AdminApp({ admin }: { admin: AdminUser }) {
     if (typeof window !== "undefined") window.scrollTo({ top: 0 });
   }, []);
 
-  const openLogCall = useCallback((clinicId?: string, contactId?: string) => {
-    setLogCall({ clinicId, contactId });
-  }, []);
-
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   const ctx = useMemo(
-    () => ({ navigate, openClinic, openLogCall, refreshKey, refresh, admin, currentView: nav.view }),
-    [navigate, openClinic, openLogCall, refreshKey, refresh, admin, nav.view]
+    () => ({ navigate, openClinic, refreshKey, refresh, admin, currentView: nav.view }),
+    [navigate, openClinic, refreshKey, refresh, admin, nav.view]
   );
 
   const ViewComponent = VIEW_MAP[nav.view] ?? OverviewView;
@@ -252,6 +247,13 @@ export function AdminApp({ admin }: { admin: AdminUser }) {
         <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-[11px] py-1 px-4 text-center font-medium">
           Private Internal System — Authorized Access Only · noindex · nofollow
         </div>
+        {appConfig.dataMode !== "live" && (
+          <div className="bg-slate-900 text-white text-[11px] py-1.5 px-4 text-center font-medium">
+            {appConfig.dataMode === "demo"
+              ? "DEMO MODE — records are local fixtures; operational actions are disabled."
+              : "HYBRID MODE — live records and demo fixtures are intentionally separated."}
+          </div>
+        )}
         <div className="flex flex-1 min-h-0">
           <Sidebar
             collapsed={sidebarCollapsed}
@@ -261,7 +263,7 @@ export function AdminApp({ admin }: { admin: AdminUser }) {
           <div className="flex-1 flex flex-col min-w-0">
             <AdminHeader
               admin={admin}
-              onOpenLogCall={() => setLogCall({})}
+              onOpenLogCall={() => navigate("call-console")}
             />
             <main className="flex-1 overflow-y-auto nv-scroll">
               <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-6">
@@ -274,22 +276,13 @@ export function AdminApp({ admin }: { admin: AdminUser }) {
         </div>
         <footer className="border-t border-border/70 bg-card/50 py-3 px-6">
           <div className="mx-auto max-w-[1400px] flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>Novalyte Admin · Revenue Command Center · {appConfig.mockMode ? "Mock Mode" : "Live Mode"}</span>
+            <span>Novalyte Admin · Revenue Command Center · {appConfig.dataMode === "hybrid" ? "Hybrid Mode (Live + Demo)" : appConfig.mockMode ? "Demo Mode" : "Live Mode"}</span>
             <span className="flex items-center gap-3">
               <span>© {new Date().getFullYear()} Novalyte AI</span>
             </span>
           </div>
         </footer>
 
-        {logCall && (
-          <LogCallDialog
-            open={!!logCall}
-            onOpenChange={(o) => !o && setLogCall(null)}
-            presetClinicId={logCall.clinicId}
-            presetContactId={logCall.contactId}
-            onLogged={() => refresh()}
-          />
-        )}
       </div>
     </NavContext.Provider>
   );

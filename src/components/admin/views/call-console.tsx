@@ -37,6 +37,8 @@ import {
   ListChecks,
   BookOpen,
   PhoneIncoming,
+  Search,
+  Sparkles,
 } from "lucide-react";
 import { clinicService } from "@/services";
 import { CALL_OUTCOMES, OUTCOME_MAP } from "@/lib/constants";
@@ -54,19 +56,25 @@ const OBJECTION_LIBRARY = [
 ];
 
 const QUALIFICATION_CHECKLIST = [
-  { id: "q1", label: "Decision-maker reached" },
-  { id: "q2", label: "Confirmed service offering matches" },
-  { id: "q3", label: "Confirmed patient acquisition is a priority" },
-  { id: "q4", label: "Budget authority confirmed" },
-  { id: "q5", label: "Timeline / urgency discussed" },
-  { id: "q6", label: "Next step agreed" },
+  { id: "q1", label: "Permission to include the clinic in the directory" },
+  { id: "q2", label: "Listing contact name and role confirmed" },
+  { id: "q3", label: "Public clinic name and main phone verified" },
+  { id: "q4", label: "Website, address, hours, and locations verified" },
+  { id: "q5", label: "Services and telehealth availability confirmed" },
+  { id: "q6", label: "Booking URL or phone booking process confirmed" },
+  { id: "q7", label: "Accepting-new-patients status confirmed" },
+  { id: "q8", label: "Insurance, self-pay, or financing information captured" },
+  { id: "q9", label: "Provider names and public-display permission confirmed" },
+  { id: "q10", label: "Directory assets or public website permission discussed" },
+  { id: "q11", label: "Questions, objections, and missing information recorded" },
+  { id: "q12", label: "Follow-up owner and date agreed" },
 ];
 
-export function CallConsoleView() {
-  const { openClinic, openLogCall, refreshKey } = useNav();
+export function CallConsoleView({ clinicId: initialClinicId }: { clinicId?: string | null }) {
+  const { openClinic, refreshKey } = useNav();
   const [clinics, setClinics] = useState<Clinic[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeClinicId, setActiveClinicId] = useState<string | null>(null);
+  const [activeClinicId, setActiveClinicId] = useState<string | null>(initialClinicId ?? null);
 
   const [callState, setCallState] = useState<CallState>("idle");
   const [callDuration, setCallDuration] = useState(0);
@@ -79,10 +87,26 @@ export function CallConsoleView() {
   const [qualification, setQualification] = useState<Record<string, boolean>>({});
   const [expandedObjection, setExpandedObjection] = useState<string | null>(null);
   const [dialPadOpen, setDialPadOpen] = useState(false);
+  const [providerCallId, setProviderCallId] = useState<string | null>(null);
+  const [callSessionId, setCallSessionId] = useState<string | null>(null);
+  const [research, setResearch] = useState<string | null>(null);
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [copilotSuggestion, setCopilotSuggestion] = useState<string | null>(null);
+  const [copilotLoading, setCopilotLoading] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const callDurationRef = useRef(0);
+  const startingCallRef = useRef(false);
 
   // Fetch ready-to-call clinics + others in outreach stages
+  useEffect(() => {
+    callDurationRef.current = callDuration;
+  }, [callDuration]);
+
+  useEffect(() => {
+    if (initialClinicId) setActiveClinicId(initialClinicId);
+  }, [initialClinicId]);
+
   useEffect(() => {
     setLoading(true);
     Promise.all([
@@ -109,6 +133,35 @@ export function CallConsoleView() {
     };
   }, [callState]);
 
+  useEffect(() => {
+    if (!providerCallId || callState === "ended" || callState === "idle") return;
+    const poll = async () => {
+      const response = await fetch(`/api/vapi/call/${providerCallId}`);
+      if (!response.ok) return;
+      const { call } = await response.json();
+      if (call.status === "in-progress" || call.status === "forwarding") {
+        setCallState("connected");
+        void persistCallSession({ status: "connected" });
+      }
+      if (call.status === "ended") {
+        setCallState("ended");
+        void persistCallSession({ status: "ended", endedAt: new Date().toISOString(), durationSec: callDurationRef.current });
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 3000);
+    return () => window.clearInterval(timer);
+  }, [providerCallId, callState, callSessionId]);
+
+  async function persistCallSession(data: Record<string, unknown>) {
+    if (!callSessionId) return;
+    await fetch(`/api/calls/${callSessionId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }).catch(() => undefined);
+  }
+
   const activeClinic = useMemo(() => clinics.find((c) => c.id === activeClinicId) ?? null, [clinics, activeClinicId]);
 
   // Reset call state when switching clinics
@@ -127,22 +180,44 @@ export function CallConsoleView() {
     setQualification({});
     setMuted(false);
     setOnHold(false);
+    setCallSessionId(null);
+    setProviderCallId(null);
   }
 
-  function startCall() {
-    if (!activeClinic) return;
-    setCallState("dialing");
-    setTimeout(() => setCallState("ringing"), 1200);
-    setTimeout(() => {
-      setCallState("connected");
+  async function startCall() {
+    if (startingCallRef.current || callState !== "idle") return;
+    if (!activeClinic?.primaryPhone) {
+      toast.error("This clinic does not have a phone number.");
+      return;
+    }
+    startingCallRef.current = true;
+    setCallState("configuring");
+    try {
+      const response = await fetch("/api/vapi/call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clinicId: activeClinic.id }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (payload.callSessionId) setCallSessionId(payload.callSessionId);
+      if (!response.ok) {
+        setCallState(payload.callSessionId ? "failed" : "idle");
+        toast.error(payload.error || "Vapi could not start the call.");
+        return;
+      }
+      setProviderCallId(payload.callId ?? null);
+      setCallState("dialing");
       setCallDuration(0);
-      toast.success(`Connected — ${activeClinic.name}`);
-    }, 2800);
+      toast.success(`Call attempt created · ${payload.callId}`);
+    } finally {
+      startingCallRef.current = false;
+    }
   }
 
   function endCall() {
     setCallState("ended");
     if (timerRef.current) clearInterval(timerRef.current);
+    void persistCallSession({ status: "ended", endedAt: new Date().toISOString(), durationSec: callDuration });
     toast.info(`Call ended · ${formatDuration(callDuration)}`);
   }
 
@@ -156,14 +231,71 @@ export function CallConsoleView() {
     setQualification({});
     setMuted(false);
     setOnHold(false);
+    setProviderCallId(null);
+    setCallSessionId(null);
+    setResearch(null);
+    setCopilotSuggestion(null);
   }
 
-  function saveCall() {
+  async function researchClinic() {
+    if (!activeClinic) return;
+    setResearchLoading(true);
+    try {
+      const response = await fetch("/api/research/clinic", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clinicId: activeClinic.id }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Research failed.");
+      setResearch(payload.research.markdown || "No readable website content was returned.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Research failed.");
+    } finally {
+      setResearchLoading(false);
+    }
+  }
+
+  async function askCopilot() {
+    if (!activeClinic) return;
+    setCopilotLoading(true);
+    try {
+      const response = await fetch("/api/copilot/suggest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clinicName: activeClinic.name, clinicContext: `${activeClinic.city ?? ""}, ${activeClinic.state ?? ""}. Services: ${(activeClinic.services ?? []).join(", ")}`, transcript: notes }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Copilot failed.");
+      setCopilotSuggestion(payload.suggestion);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Copilot failed.");
+    } finally {
+      setCopilotLoading(false);
+    }
+  }
+
+  async function saveCall() {
     if (!outcome) {
       toast.error("Select an outcome before saving.");
       return;
     }
-    toast.success(`Call logged · ${OUTCOME_MAP[outcome]?.label ?? outcome}`);
+    if (!activeClinic) return;
+    const config = CALL_OUTCOMES.find((item) => item.id === outcome);
+    const response = await fetch(`/api/clinics/${activeClinic.id}/calls`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        outcome,
+        answered: config?.connected ?? false,
+        decisionMakerReached: qualification.q1 ?? false,
+        notes,
+        nextAction: nextAction || undefined,
+        nextActionAt: followUpDate ? new Date(followUpDate).toISOString() : undefined,
+        followUpRequired: Boolean(nextAction),
+        durationSec: callDuration,
+        callSessionId: callSessionId ?? undefined,
+        structuredData: { onboardingChecklist: qualification },
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      toast.error(body.error || "Could not save the call log.");
+      return;
+    }
+    toast.success(`Call attempt saved · ${OUTCOME_MAP[outcome]?.label ?? outcome}`);
     resetCall();
   }
 
@@ -191,7 +323,7 @@ export function CallConsoleView() {
     <div>
       <PageHeader
         title="Call Console"
-        description="Live calling workspace — queue, call workspace & coaching panel"
+        description="Real clinic queue with external phone dialer and Supabase call logging"
         action={
           <Badge variant="outline" className="gap-1.5 text-xs">
             <span className={`size-2 rounded-full ${callState === "idle" ? "bg-slate-400" : callState === "connected" ? "bg-emerald-500 animate-pulse" : callState === "ended" ? "bg-rose-500" : "bg-amber-500"}`} />
@@ -200,9 +332,9 @@ export function CallConsoleView() {
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pb-20 lg:pb-0">
         {/* LEFT: Queue */}
-        <Card className="p-0 lg:col-span-3 lg:max-h-[calc(100vh-220px)] lg:overflow-hidden flex flex-col">
+        <Card className="p-0 lg:col-span-3 max-h-[32vh] lg:max-h-[calc(100vh-220px)] overflow-hidden flex flex-col">
           <div className="px-3 py-2.5 border-b">
             <h3 className="text-sm font-semibold flex items-center gap-2">
               <ListChecks className="size-4" /> Queue
@@ -247,7 +379,7 @@ export function CallConsoleView() {
         </Card>
 
         {/* CENTER: Call workspace */}
-        <Card className="p-0 lg:col-span-6 flex flex-col">
+        <Card className="p-0 lg:col-span-6 min-w-0 flex flex-col">
           {activeClinic ? (
             <>
               {/* Clinic summary header */}
@@ -333,15 +465,13 @@ export function CallConsoleView() {
                 )}
 
                 {/* Controls */}
-                <div className="flex items-center gap-2 mt-5 flex-wrap justify-center">
+                <div className="sticky bottom-0 z-10 -mx-4 px-4 py-3 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-y flex items-center gap-2 mt-5 flex-wrap justify-center pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
                   {callState === "idle" && (
                     <>
-                      <Button onClick={startCall} disabled={!isWithinCallingHours(activeClinic.timezone)} size="lg" className="bg-emerald-600 hover:bg-emerald-700">
-                        <PhoneOutgoing className="size-4" /> Dial
+                      <Button onClick={startCall} disabled={!activeClinic.primaryPhone || !isWithinCallingHours(activeClinic.timezone)} size="lg" className="bg-emerald-600 hover:bg-emerald-700 min-h-12">
+                        <PhoneOutgoing className="size-4" /> Start Call
                       </Button>
-                      <Button variant="outline" size="lg" onClick={() => setDialPadOpen((o) => !o)}>
-                        <Grid3x3 className="size-4" /> Dial Pad
-                      </Button>
+                      <Badge variant="outline">Provider-backed call</Badge>
                       {!isWithinCallingHours(activeClinic.timezone) && (
                         <span className="text-xs text-rose-600 flex items-center gap-1">
                           <AlertTriangle className="size-3" /> Outside calling hours (8a–8p local)
@@ -369,9 +499,9 @@ export function CallConsoleView() {
                       </Button>
                     </>
                   )}
-                  {callState === "ended" && (
+                  {(callState === "ended" || callState === "failed" || callState === "provider_unavailable") && (
                     <>
-                      <Button size="lg" onClick={saveCall}>
+                      <Button size="lg" onClick={saveCall} disabled={!callSessionId}>
                         <CheckCircle2 className="size-4" /> Save Call Log
                       </Button>
                       <Button variant="outline" size="lg" onClick={resetCall}>
@@ -402,7 +532,7 @@ export function CallConsoleView() {
         </Card>
 
         {/* RIGHT: Coaching panel */}
-        <Card className="p-0 lg:col-span-3 lg:max-h-[calc(100vh-220px)] lg:overflow-hidden flex flex-col">
+        <Card className="p-0 lg:col-span-3 max-h-[50vh] lg:max-h-[calc(100vh-220px)] overflow-hidden flex flex-col">
           <div className="px-3 py-2.5 border-b">
             <h3 className="text-sm font-semibold flex items-center gap-2">
               <BookOpen className="size-4" /> Coaching Panel
@@ -410,6 +540,19 @@ export function CallConsoleView() {
           </div>
           <div className="flex-1 overflow-y-auto nv-scroll p-3 space-y-4">
             {/* Outcome selector */}
+            <div className="space-y-2 border-b pb-3">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Provider tools</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                <Button size="sm" variant="outline" onClick={researchClinic} disabled={researchLoading || !activeClinic?.website}>
+                  <Search className="size-3" /> {researchLoading ? "Researching…" : "Research site"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={askCopilot} disabled={copilotLoading}>
+                  <Sparkles className="size-3" /> {copilotLoading ? "Thinking…" : "Ask GLM"}
+                </Button>
+              </div>
+              {copilotSuggestion && <div className="rounded-md border border-violet-200 bg-violet-50 p-2 text-xs text-violet-950"><span className="font-medium">GLM copilot:</span> {copilotSuggestion}</div>}
+              {research && <div className="max-h-40 overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs whitespace-pre-wrap">{research}</div>}
+            </div>
             <div>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Call Outcome</p>
               <select
@@ -493,16 +636,20 @@ export function CallConsoleView() {
             <div className="pt-2 border-t">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Quick Actions</p>
               <div className="grid grid-cols-2 gap-1.5">
-                <Button size="sm" variant="outline" onClick={() => activeClinic && openLogCall(activeClinic.id)}>
-                  <PhoneCall className="size-3" /> Log Call
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => toast.info("Opening full clinic detail…")}>
+                <Button size="sm" variant="outline" onClick={() => activeClinic && openClinic(activeClinic.id)}>
                   <Building2 className="size-3" /> Details
                 </Button>
-                <Button size="sm" variant="outline" className="text-amber-600" onClick={() => toast.success("Marked 'Not Interested'")}>
+                <Button size="sm" variant="outline" className="text-amber-600" onClick={() => { setOutcome("not_interested"); toast.info("Outcome selected. Save the call to persist it."); }}>
                   <Send className="size-3" /> Not Interested
                 </Button>
-                <Button size="sm" variant="outline" className="text-rose-600" onClick={() => toast.success("Added to DNC list")}>
+                <Button size="sm" variant="outline" className="text-rose-600" onClick={async () => {
+                  if (!activeClinic) return;
+                  const response = await fetch(`/api/clinics/${activeClinic.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ doNotCall: true }) });
+                  if (!response.ok) { toast.error("Could not update do-not-call status."); return; }
+                  toast.success("Clinic added to do-not-call list.");
+                  setClinics((current) => current.filter((clinic) => clinic.id !== activeClinic.id));
+                  setActiveClinicId(null);
+                }}>
                   <Ban className="size-3" /> DNC
                 </Button>
               </div>
@@ -530,12 +677,14 @@ function ContactItem({ icon: Icon, label, value, tone }: { icon: typeof Phone; l
 function CallStateIndicator({ state, duration }: { state: CallState; duration: number }) {
   const config = {
     idle: { icon: PhoneCall, label: "Ready to dial", color: "text-slate-400 bg-slate-50" },
+    configuring: { icon: Clock, label: "Creating call attempt…", color: "text-amber-700 bg-amber-50" },
     dialing: { icon: PhoneOutgoing, label: "Dialing…", color: "text-amber-700 bg-amber-50" },
     ringing: { icon: PhoneIncoming, label: "Ringing…", color: "text-amber-700 bg-amber-50" },
     connected: { icon: PhoneCall, label: "Connected", color: "text-emerald-700 bg-emerald-50" },
     on_hold: { icon: Pause, label: "On Hold", color: "text-amber-700 bg-amber-50" },
     ended: { icon: PhoneOff, label: "Call Ended", color: "text-rose-700 bg-rose-50" },
     failed: { icon: AlertTriangle, label: "Call Failed", color: "text-rose-700 bg-rose-50" },
+    provider_unavailable: { icon: AlertTriangle, label: "Provider Unavailable", color: "text-rose-700 bg-rose-50" },
   }[state];
   const Icon = config.icon;
 

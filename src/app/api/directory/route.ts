@@ -12,12 +12,12 @@ export async function GET(req: NextRequest) {
   const where = stage ? { listingStatus: stage } : {};
   const profiles = await db.directoryProfile.findMany({
     where,
-    include: { clinic: { select: { id: true, name: true, city: true, state: true, primaryPhone: true, website: true, services: { include: { service: { select: { name: true, slug: true } } } } } }, reviewedBy: { select: { firstName: true, lastName: true } } },
+    include: { clinic: true },
     orderBy: { updatedAt: "desc" },
     take: 200,
   });
 
   return NextResponse.json({
-    profiles: profiles.map((p) => ({ ...p, clinic: { ...p.clinic, services: p.clinic.services.map((s) => s.service) } })),
+    profiles: profiles.map((p) => ({ ...p, clinic: p.clinic ? { ...p.clinic, services: [] } : null })),
   });
 }

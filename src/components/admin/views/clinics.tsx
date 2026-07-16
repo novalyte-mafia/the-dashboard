@@ -46,7 +46,7 @@ const FILTERS = [
 ];
 
 export function ClinicsView() {
-  const { openClinic, openLogCall, refreshKey } = useNav();
+  const { openClinic, navigate, refreshKey } = useNav();
   const [clinics, setClinics] = useState<Clinic[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -54,6 +54,8 @@ export function ClinicsView() {
   const [debouncedQ, setDebouncedQ] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
   const [activeView, setActiveView] = useState<string>("All Clinics");
+  const [page, setPage] = useState(1);
+  const pageSize = 50;
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 300);
@@ -69,8 +71,12 @@ export function ClinicsView() {
     if (activeFilters.interested) filters.interested = true;
     if (activeFilters.hasDecisionMaker) filters.hasDecisionMaker = true;
     if (activeFilters.neverContacted) filters.neverContacted = true;
+    filters.page = page;
+    filters.pageSize = pageSize;
     return filters;
-  }, [debouncedQ, activeFilters]);
+  }, [debouncedQ, activeFilters, page]);
+
+  useEffect(() => setPage(1), [debouncedQ, activeFilters]);
 
   useEffect(() => {
     setLoading(true);
@@ -124,9 +130,9 @@ export function ClinicsView() {
               <Plus className="size-4" />
               <span className="hidden sm:inline">Add Clinic</span>
             </Button>
-            <Button onClick={() => openLogCall()}>
+            <Button onClick={() => navigate("call-console")}>
               <PhoneCall className="size-4" />
-              <span className="hidden sm:inline">Log Call</span>
+              <span className="hidden sm:inline">Call Console</span>
             </Button>
           </>
         }
@@ -261,10 +267,21 @@ export function ClinicsView() {
                 hideOnMobile: true,
               },
             ]}
-            pageSize={25}
+            pageSize={pageSize}
           />
         )}
       </Card>
+      {total > pageSize && (
+        <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">
+            Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}
+          </span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={page === 1 || loading} onClick={() => setPage((p) => p - 1)}>Previous</Button>
+            <Button variant="outline" size="sm" disabled={page * pageSize >= total || loading} onClick={() => setPage((p) => p + 1)}>Next</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

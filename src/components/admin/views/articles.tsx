@@ -6,7 +6,7 @@ import { contentService } from "@/services";
 import type { Article } from "@/types";
 import {
   PageHeader, MetricCard, DataTable, FilterBar, LoadingState,
-  StatusBadge, ScoreBadge, SavedViewSelector,
+  StatusBadge, ScoreBadge, SavedViewSelector, DataSourceBadge,
 } from "@/components/admin/shared/index";
 import { Button } from "@/components/ui/button";
 import {
@@ -117,7 +117,7 @@ export function ArticlesView() {
             sortValue: (a) => a.title,
             render: (a) => (
               <div>
-                <div className="font-medium">{a.title}</div>
+                <div className="font-medium flex items-center gap-2">{a.title} <DataSourceBadge source={(a as any).dataSource} /></div>
                 <div className="text-xs text-muted-foreground">{a.slug}</div>
               </div>
             ),

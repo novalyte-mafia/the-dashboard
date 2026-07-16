@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionAdmin } from "@/lib/auth";
-import { Prisma } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
   const admin = await getSessionAdmin();
@@ -12,11 +11,10 @@ export async function GET(req: NextRequest) {
   const timezone = params.get("timezone");
   const priority = params.get("priority");
   const service = params.get("service");
-  const withinHours = params.get("withinHours") === "true";
   const neverContacted = params.get("neverContacted") === "true";
 
-  // Default queue: ready_to_call + follow_up_required + attempted (needs retry), excluding DNC/archived
-  const where: Prisma.ClinicWhereInput = {
+  // Default queue: ready_to_call + follow_up_required + attempted, excluding DNC/archived
+  const where: any = {
     archived: false,
     doNotCall: false,
     pipelineStage: { in: ["ready_to_call", "follow_up_required", "attempted", "connected"] },
@@ -24,7 +22,6 @@ export async function GET(req: NextRequest) {
   if (state) where.state = state;
   if (timezone) where.timezone = timezone;
   if (priority) where.priority = priority;
-  if (service) where.services = { some: { service: { slug: service } } };
   if (neverContacted) where.lastContactedAt = null;
 
   const startOfToday = new Date();
@@ -33,16 +30,16 @@ export async function GET(req: NextRequest) {
   const clinics = await db.clinic.findMany({
     where,
     include: {
-      contacts: { where: { archived: false }, orderBy: [{ isPrimary: "desc" }, { isDecisionMaker: "desc" }] },
-      services: { include: { service: { select: { name: true, slug: true } } } },
-      followUps: { where: { status: { in: ["open", "in_progress"] } }, orderBy: { dueDate: "asc" }, take: 1 },
+      contacts: true,
+      services: true,
+      followUps: true,
     },
-    orderBy: [{ priority: "desc" }, { readinessScore: "desc" }, { callAttempts: "asc" }],
+    orderBy: { readinessScore: "desc" },
     take: 100,
   });
 
-  const queue = clinics.map((c) => {
-    const dm = c.contacts.find((ct) => ct.isDecisionMaker) ?? c.contacts[0] ?? null;
+  const queue = clinics.map((c: any) => {
+    const dm = (c.contacts || []).find((ct: any) => ct.isDecisionMaker) ?? (c.contacts || [])[0] ?? null;
     const lastCall = c.callAttempts;
     return {
       id: c.id,
@@ -58,9 +55,9 @@ export async function GET(req: NextRequest) {
       lastContactedAt: c.lastContactedAt,
       nextAction: c.nextAction,
       nextActionAt: c.nextActionAt,
-      services: c.services.map((s) => s.service),
+      services: (c.services || []).map((s: any) => s.service || s),
       decisionMaker: dm,
-      followUp: c.followUps[0] ?? null,
+      followUp: (c.followUps || [])[0] ?? null,
     };
   });
 

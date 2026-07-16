@@ -66,7 +66,10 @@ export function WorkforceAnalyticsView() {
   const applicationsBySpecialty = useMemo(() => {
     const map = new Map<string, number>();
     professionals.forEach((p) => {
-      const baseSpecialty = p.specialty.split(" & ")[0].split(" — ")[0];
+      const baseSpecialty = String(p.specialty ?? "Unspecified")
+        .split(" & ")[0]
+        .split(" — ")[0]
+        .trim() || "Unspecified";
       map.set(baseSpecialty, (map.get(baseSpecialty) ?? 0) + 1);
     });
     return Array.from(map.entries())

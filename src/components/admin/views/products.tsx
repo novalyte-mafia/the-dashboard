@@ -6,7 +6,7 @@ import { marketplaceService } from "@/services";
 import type { Product } from "@/types";
 import {
   PageHeader, MetricCard, DataTable, FilterBar, DetailDrawer, LoadingState,
-  StatusBadge,
+  StatusBadge, DataSourceBadge,
 } from "@/components/admin/shared/index";
 import { Button } from "@/components/ui/button";
 import {
@@ -107,7 +107,7 @@ export function ProductsView() {
             sortValue: (p) => p.title,
             render: (p) => (
               <div>
-                <div className="font-medium">{p.title}</div>
+                <div className="font-medium flex items-center gap-2">{p.title} <DataSourceBadge source={(p as any).dataSource} /></div>
                 <div className="text-xs text-muted-foreground tabular-nums">{p.sku}</div>
               </div>
             ),

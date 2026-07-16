@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionAdmin } from "@/lib/auth";
+import { getSessionAdmin, requireAdminRole } from "@/lib/auth";
 import { logActivity, recalcReadiness } from "@/lib/data";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -16,7 +16,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const admin = await getSessionAdmin();
+  const admin = await requireAdminRole(["admin", "operations", "sales"]);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   const body = (await req.json()) as Record<string, unknown>;
@@ -33,28 +33,52 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const doNotCall = Boolean(body.doNotCall ?? false) || outcome === "do_not_call";
   const invalidNumber = Boolean(body.invalidNumber ?? false) || outcome === "wrong_number" || outcome === "disconnected_number";
 
-  const call = await db.callSession.create({
+  const existingCall = body.callSessionId
+    ? await db.callSession.findUnique({ where: { id: String(body.callSessionId) } })
+    : null;
+  if (existingCall && existingCall.clinicId !== id) {
+    return NextResponse.json({ error: "Call session does not belong to this clinic" }, { status: 409 });
+  }
+  const call = existingCall
+    ? await db.callSession.update({
+      where: { id: existingCall.id },
+      data: {
+        endedAt: body.endedAt ? new Date(body.endedAt as string) : new Date(),
+        durationSec: Number(body.durationSec ?? existingCall.durationSec ?? 0),
+        answered,
+        decisionMakerReached,
+        outcome,
+        interestLevel,
+        notes: (body.notes as string) ?? null,
+        nextAction: (body.nextAction as string) ?? null,
+        nextActionAt: body.nextActionAt ? new Date(body.nextActionAt as string) : null,
+        followUpRequired,
+        doNotCall,
+        invalidNumber,
+        status: "saved",
+        structuredData: JSON.stringify(body.structuredData ?? {}),
+      },
+    })
+    : await db.callSession.create({
     data: {
       clinicId: id,
       contactId: (body.contactId as string) ?? null,
-      startedAt: body.startedAt ? new Date(body.startedAt as string) : new Date(),
-      endedAt: body.endedAt ? new Date(body.endedAt as string) : null,
-      durationSec: Number(body.durationSec ?? 0),
-      direction: String(body.direction ?? "outbound"),
-      attemptNumber,
-      answered,
-      decisionMakerReached,
-      outcome,
-      interestLevel,
-      objections: JSON.stringify(body.objections ?? []),
-      notes: (body.notes as string) ?? null,
-      nextAction: (body.nextAction as string) ?? null,
-      nextActionAt: body.nextActionAt ? new Date(body.nextActionAt as string) : null,
-      followUpRequired,
-      pipelineStageRecommendation: (body.pipelineStageRecommendation as string) ?? null,
-      doNotCall,
-      invalidNumber,
       adminId: admin.id,
+      startedAt: body.startedAt ? new Date(body.startedAt as string) : new Date(),
+      endedAt: body.endedAt ? new Date(body.endedAt as string) : new Date(),
+      answered,
+      outcome,
+      notes: (body.notes as string) ?? null,
+      aiTopicTags: JSON.stringify({
+        direction: String(body.direction ?? "outbound"),
+        attemptNumber,
+        decisionMakerReached,
+        interestLevel,
+        followUpRequired,
+        invalidNumber,
+        durationSec: Number(body.durationSec ?? 0),
+      }),
+      status: "saved",
     },
   });
 
@@ -87,8 +111,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         fromStage: clinic.pipelineStage,
         toStage: updateData.pipelineStage as string,
         changedById: admin.id,
-        reason: `Call logged (${outcome})`,
-        relatedCallId: call.id,
+        notes: `Call logged (${outcome}); call ${call.id}`,
       },
     });
   }
@@ -100,12 +123,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         title: body.nextAction as string,
         clinicId: id,
         contactId: (body.contactId as string) ?? null,
-        relatedCallId: call.id,
         taskType: (body.followUpType as string) ?? "phone_call",
         priority: decisionMakerReached ? "high" : "normal",
         dueDate: body.nextActionAt ? new Date(body.nextActionAt as string) : new Date(Date.now() + 86400000),
         status: "open",
-        notes: (body.notes as string) ?? null,
+        description: `${(body.notes as string) ?? ""}\nCreated from call ${call.id}`.trim(),
         assignedAdminId: admin.id,
       },
     });

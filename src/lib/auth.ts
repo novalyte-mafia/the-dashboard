@@ -3,7 +3,13 @@ import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/constants";
 
-const SECRET = process.env.NOVALYTE_SESSION_SECRET || "novalyte-admin-dev-secret-change-in-production";
+function getSecret() {
+  const secret = process.env.NOVALYTE_SESSION_SECRET?.trim();
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new Error("NOVALYTE_SESSION_SECRET must be configured in production.");
+  }
+  return secret || "novalyte-admin-dev-secret-change-in-production";
+}
 
 // --- Password hashing (scrypt) ---
 export function hashPassword(password: string): string {
@@ -34,7 +40,7 @@ function b64url(obj: unknown): string {
 
 export function createSessionToken(payload: SessionPayload): string {
   const body = b64url({ ...payload, iat: Date.now(), exp: Date.now() + SESSION_MAX_AGE * 1000 });
-  const sig = createHmac("sha256", SECRET).update(body).digest("base64url");
+  const sig = createHmac("sha256", getSecret()).update(body).digest("base64url");
   return `${body}.${sig}`;
 }
 
@@ -42,8 +48,10 @@ export function verifySessionToken(token: string): SessionPayload | null {
   try {
     const [body, sig] = token.split(".");
     if (!body || !sig) return null;
-    const expected = createHmac("sha256", SECRET).update(body).digest("base64url");
-    if (sig !== expected) return null;
+    const expected = createHmac("sha256", getSecret()).update(body).digest("base64url");
+    const sigBuffer = Buffer.from(sig);
+    const expectedBuffer = Buffer.from(expected);
+    if (sigBuffer.length !== expectedBuffer.length || !timingSafeEqual(sigBuffer, expectedBuffer)) return null;
     const decoded = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
     if (decoded.exp && Date.now() > decoded.exp) return null;
     return { adminId: decoded.adminId, email: decoded.email, role: decoded.role };
@@ -69,10 +77,8 @@ export async function clearSessionCookie() {
 }
 
 // Returns the active admin member from the session cookie, or null.
-// Also enforces status === "active".
-// NOTE: Login screen is currently disabled — when no session cookie is
-// present, this falls back to the first active admin so the app remains
-// fully usable. Re-enable the login screen by removing the fallback below.
+// Authentication fails closed: an absent or invalid cookie never receives
+// an implicit administrator identity.
 export async function getSessionAdmin() {
   const c = await cookies();
   const token = c.get(SESSION_COOKIE)?.value;
@@ -85,12 +91,20 @@ export async function getSessionAdmin() {
       if (admin && admin.status === "active") return admin;
     }
   }
-  // Fallback: first active admin (login disabled for now).
-  const fallback = await db.adminMember.findFirst({
-    where: { status: "active" },
-    orderBy: { createdAt: "asc" },
-  });
-  return fallback;
+  return null;
 }
 
 export type SessionAdmin = NonNullable<Awaited<ReturnType<typeof getSessionAdmin>>>;
+
+export type AdminRole = "founder" | "admin" | "sales" | "operations" | "directory_reviewer";
+
+export function hasRole(admin: SessionAdmin, roles: readonly AdminRole[]) {
+  return admin.role === "founder" || roles.includes(admin.role as AdminRole);
+}
+
+/** Server-side authorization guard for mutating routes. */
+export async function requireAdminRole(roles: readonly AdminRole[] = []) {
+  const admin = await getSessionAdmin();
+  if (!admin || (roles.length > 0 && !hasRole(admin, roles))) return null;
+  return admin;
+}

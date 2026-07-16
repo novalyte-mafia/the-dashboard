@@ -353,7 +353,13 @@ export const mockDirectory: DirectoryProfile[] = mockClinics.map((c, i) => {
     claimStatus: c.directoryStatus === "published" || c.directoryStatus === "approved" ? "verified" : c.directoryStatus === "unclaimed" ? "unclaimed" : "requested",
     verificationStatus: c.verificationStatus,
     profileCompleteness: completion,
-    ...data,
+    servicesCompleted: data.servicesCompleted ?? false,
+    providersCompleted: data.providersCompleted ?? false,
+    locationCompleted: data.locationCompleted ?? false,
+    hoursCompleted: data.hoursCompleted ?? false,
+    pricingCompleted: data.pricingCompleted ?? false,
+    imagesCompleted: data.imagesCompleted ?? false,
+    bookingLinkCompleted: data.bookingLinkCompleted ?? false,
     lastReviewedAt: c.verificationStatus === "verified" ? daysAgo(3) : undefined,
     reviewedByName: c.verificationStatus === "verified" ? "Jamil Yakasai" : undefined,
     publicationStatus: c.directoryStatus === "published" ? "published" : c.directoryStatus === "approved" ? "ready" : "draft",
@@ -417,7 +423,7 @@ export const mockClinicMatches: ClinicMatch[] = mockPatientLeads.slice(0, 6).fla
     telehealthFit: lead.telehealthPreference && clinic.telehealth ? 100 : 50,
     bookingFit: 80 - i * 10,
     priceFit: 60 + (i * 8),
-    verificationStatus: clinic.verificationStatus,
+    verificationStatus: clinic.verificationStatus === "rejected" ? "unverified" : clinic.verificationStatus,
     explanation: `Geographic fit ${100 - i * 20}%, treatment ${clinic.services.includes(lead.treatmentInterest) ? "matches" : "partial match"}, ${clinic.telehealth ? "telehealth available" : "in-person only"}.`,
   }));
 });
@@ -600,10 +606,10 @@ export const mockNotifications: NotificationItem[] = [
   { id: "n2", type: "meeting_upcoming", title: "Meeting Tomorrow", message: "Pacific Men's Health discovery call scheduled tomorrow.", priority: "normal", isRead: false, relatedEntityType: "clinic", createdAt: hoursAgo(3) },
   { id: "n3", type: "high_intent_clinic", title: "High-Intent Clinic", message: "Summit Vitality Clinic showed strong buying signals.", priority: "critical", isRead: false, relatedEntityType: "clinic", createdAt: hoursAgo(12) },
   { id: "n4", type: "patient_lead_unassigned", title: "3 Unassigned Patient Leads", message: "New patient leads awaiting routing.", priority: "high", isRead: false, relatedEntityType: "patient_lead", createdAt: hoursAgo(2) },
-  { id: "n5", type: "campaign_budget_alert", title: "Campaign Over Budget", message: "TRT TikTok campaign has spent 96% of budget.", priority: "warning", isRead: true, relatedEntityType: "campaign", createdAt: daysAgo(1) },
+  { id: "n5", type: "campaign_budget_alert", title: "Campaign Over Budget", message: "TRT TikTok campaign has spent 96% of budget.", priority: "normal", isRead: true, relatedEntityType: "campaign", createdAt: daysAgo(1) },
   { id: "n6", type: "automation_failed", title: "Automation Failed", message: "Article Published → Social Post automation failed 8 times.", priority: "high", isRead: false, relatedEntityType: "automation", createdAt: daysAgo(2) },
   { id: "n7", type: "directory_application", title: "New Directory Application", message: "Gulf Coast Wellness Center submitted a directory application.", priority: "normal", isRead: true, relatedEntityType: "directory", createdAt: daysAgo(3) },
-  { id: "n8", type: "integration_disconnected", title: "Slack Integration Needs Config", message: "Slack webhook URL is not configured.", priority: "warning", isRead: true, createdAt: daysAgo(5) },
+  { id: "n8", type: "integration_disconnected", title: "Slack Integration Needs Config", message: "Slack webhook URL is not configured.", priority: "normal", isRead: true, createdAt: daysAgo(5) },
 ];
 
 // ---------------------------------------------------------------------------

@@ -6,9 +6,24 @@
  * the repository layer. When false, repositories will call real
  * backend services (Supabase / APIs) — to be wired by Codex.
  */
+export type DataMode = "live" | "demo" | "hybrid";
+
+const configuredDataMode = process.env.NEXT_PUBLIC_DATA_MODE?.trim().toLowerCase();
+const dataMode: DataMode = configuredDataMode === "live"
+  ? "live"
+  : configuredDataMode === "demo" || configuredDataMode === "mock"
+    ? "demo"
+    : configuredDataMode === "hybrid" || configuredDataMode === "mixed"
+      ? "hybrid"
+      : process.env.NEXT_PUBLIC_MOCK_MODE === "false" ? "live" : "hybrid";
+
 export const appConfig = {
-  /** When true, all repositories return mock data. Switch to false once backend services are connected. */
-  mockMode: true,
+  /** Hybrid mode keeps live records and local fixtures visibly separated. */
+  dataMode,
+  mockMode: dataMode === "demo",
+  liveClinics: dataMode !== "demo",
+  demoOperations: dataMode !== "live",
+  hybridMode: dataMode === "hybrid",
 
   /** Brand */
   brand: {
@@ -31,13 +46,13 @@ export const appConfig = {
 
   /** Feature flags for modules not yet backend-connected */
   features: {
-    callConsoleLiveAudio: false, // Release 2: live telephony
+    callConsoleLiveAudio: false, // External dialer is used until a telephony provider is configured.
     aiCallCopilot: false,        // Release 2: realtime AI
     liveTranscripts: false,      // Release 2
   },
 
-  /** Whether the login screen is active. When false, the first active admin is auto-loaded. */
-  authEnabled: false,
+  /** Authentication is always required for the private dashboard. */
+  authEnabled: true,
 } as const;
 
 export type AppConfig = typeof appConfig;

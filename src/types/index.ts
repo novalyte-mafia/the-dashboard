@@ -162,7 +162,7 @@ export type CallOutcome =
   | "information_requested" | "connected" | "interested" | "meeting_booked"
   | "not_interested" | "already_has_provider" | "at_capacity" | "do_not_call" | "other";
 
-export type CallState = "idle" | "dialing" | "ringing" | "connected" | "on_hold" | "ended" | "failed";
+export type CallState = "idle" | "configuring" | "dialing" | "ringing" | "connected" | "on_hold" | "ended" | "failed" | "provider_unavailable";
 
 export interface CallSession {
   id: ID;

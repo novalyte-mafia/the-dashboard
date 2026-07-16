@@ -365,6 +365,15 @@ export function StatusBadge({ label, color = "slate", className }: { label: stri
   );
 }
 
+export function DataSourceBadge({ source }: { source?: "live" | "demo" }) {
+  const live = source === "live";
+  return (
+    <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0", live ? "border-emerald-200 text-emerald-700" : "border-slate-300 text-slate-500")}>
+      {live ? "Live" : "Demo"}
+    </Badge>
+  );
+}
+
 export function PriorityBadge({ priority }: { priority: string }) {
   const colors: Record<string, string> = { low: "slate", normal: "teal", high: "amber", critical: "rose" };
   return <StatusBadge label={priority.charAt(0).toUpperCase() + priority.slice(1)} color={colors[priority] ?? "slate"} />;
@@ -566,14 +575,7 @@ export { Badge, Button };
 // ---------------------------------------------------------------------------
 
 export function LogoMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 32 32" className={className} fill="none" aria-hidden="true">
-      <path
-        d="M16 3 C16.7 9.6 21.4 14.3 28 15 C21.4 15.7 16.7 20.4 16 27 C15.3 20.4 10.6 15.7 4 15 C10.6 14.3 15.3 9.6 16 3Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
+  return <img src="/logo.svg" className={cn("object-contain", className)} alt="Novalyte AI" />;
 }
 
 /** Alias of MetricCard kept for back-compat. */

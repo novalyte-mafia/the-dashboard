@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionAdmin } from "@/lib/auth";
+import { getSessionAdmin, requireAdminRole } from "@/lib/auth";
 import { logActivity } from "@/lib/data";
-import { Prisma } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
   const admin = await getSessionAdmin();
@@ -16,7 +15,7 @@ export async function GET(req: NextRequest) {
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
 
-  const where: Prisma.FollowUpTaskWhereInput = {};
+  const where: any = {};
   if (view === "today") {
     where.status = { in: ["open", "in_progress"] };
     where.dueDate = { gte: startOfToday, lte: endOfToday };
@@ -33,12 +32,12 @@ export async function GET(req: NextRequest) {
   const tasks = await db.followUpTask.findMany({
     where,
     include: {
-      clinic: { select: { id: true, name: true, city: true, state: true } },
-      contact: { select: { id: true, firstName: true, lastName: true } },
-      admin: { select: { firstName: true, lastName: true } },
-      deal: { select: { id: true, name: true } },
+      clinic: true,
+      contact: true,
+      admin: true,
+      deal: true,
     },
-    orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
+    orderBy: { dueDate: "asc" },
     take: 200,
   });
 
@@ -46,7 +45,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const admin = await getSessionAdmin();
+  const admin = await requireAdminRole(["admin", "operations", "sales"]);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = (await req.json()) as Record<string, unknown>;
   if (!body.title) return NextResponse.json({ error: "Title required" }, { status: 400 });

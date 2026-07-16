@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionAdmin } from "@/lib/auth";
+import { getSessionAdmin, requireAdminRole } from "@/lib/auth";
 import { logActivity, recalcReadiness } from "@/lib/data";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const admin = await getSessionAdmin();
+  const admin = await requireAdminRole(["admin", "operations", "sales"]);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   const body = (await req.json()) as Record<string, unknown>;
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const admin = await getSessionAdmin();
+  const admin = await requireAdminRole(["admin", "operations", "sales"]);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   const body = (await req.json()) as { contactId: string; data: Record<string, unknown> };

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionAdmin } from "@/lib/auth";
+import { getSessionAdmin, requireAdminRole } from "@/lib/auth";
 import { logActivity, recalcReadiness } from "@/lib/data";
-import { Prisma } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
   const admin = await getSessionAdmin();
@@ -23,7 +22,7 @@ export async function GET(req: NextRequest) {
   const followUpOverdue = params.get("followUpOverdue");
   const archived = params.get("archived") === "true";
 
-  const where: Prisma.ClinicWhereInput = { archived };
+  const where: any = { archived };
 
   if (q) {
     where.OR = [
@@ -41,35 +40,21 @@ export async function GET(req: NextRequest) {
   if (interested === "true") where.interested = true;
   if (paid === "true") where.paid = true;
   if (doNotCall === "true") where.doNotCall = true;
-  if (hasDecisionMaker === "true") where.contacts = { some: { isDecisionMaker: true, archived: false } };
   if (neverContacted === "true") where.lastContactedAt = null;
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-
-  if (followUpDue === "true") {
-    where.followUps = { some: { status: { in: ["open", "in_progress"] }, dueDate: { gte: startOfToday } } };
-  }
-  if (followUpOverdue === "true") {
-    where.followUps = { some: { status: { in: ["open", "in_progress"] }, dueDate: { lt: startOfToday } } };
-  }
-
   const page = Math.max(1, parseInt(params.get("page") ?? "1", 10));
-  const pageSize = Math.min(100, Math.max(1, parseInt(params.get("pageSize") ?? "50", 10)));
+  const pageSize = Math.min(50, Math.max(1, parseInt(params.get("pageSize") ?? "25", 10)));
   const sortBy = params.get("sortBy") ?? "updatedAt";
   const sortDir = params.get("sortDir") === "asc" ? "asc" : "desc";
 
   const allowedSort = ["name", "city", "state", "pipelineStage", "priority", "readinessScore", "lastContactedAt", "nextActionAt", "callAttempts", "dealValue", "updatedAt", "createdAt"];
-  const orderBy: Prisma.ClinicOrderByWithRelationInput = { [allowedSort.includes(sortBy) ? sortBy : "updatedAt"]: sortDir };
+  const orderBy: any = { [allowedSort.includes(sortBy) ? sortBy : "updatedAt"]: sortDir };
 
   const [total, clinics] = await Promise.all([
     db.clinic.count({ where }),
     db.clinic.findMany({
       where,
-      include: {
-        contacts: { where: { archived: false }, select: { id: true, firstName: true, lastName: true, title: true, isDecisionMaker: true, isPrimary: true, contactType: true } },
-        services: { include: { service: { select: { name: true, slug: true } } } },
-      },
+      include: { contacts: true, services: true },
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -77,11 +62,16 @@ export async function GET(req: NextRequest) {
   ]);
 
   return NextResponse.json({
-    clinics: clinics.map((c) => ({
+    clinics: clinics.map((c: any) => ({
       ...c,
-      services: c.services.map((s) => s.service),
-      hasDecisionMaker: c.contacts.some((ct) => ct.isDecisionMaker),
-      primaryContact: c.contacts.find((ct) => ct.isPrimary) ?? c.contacts[0] ?? null,
+      estimatedValue: c.dealValue ?? 0,
+      tags: [],
+      source: c.externalId ? "5k-accounts.csv" : "manual",
+      verificationStatus: "pending",
+      profileCompletion: c.directoryStatus === "published" ? 100 : 10,
+      services: (c.services || []).map((s: any) => s.service?.slug || s.slug || s.serviceId).filter(Boolean),
+      hasDecisionMaker: (c.contacts || []).some((ct: any) => ct.isDecisionMaker),
+      primaryContact: (c.contacts || []).find((ct: any) => ct.isPrimary) ?? (c.contacts || [])[0] ?? null,
     })),
     total,
     page,
@@ -113,7 +103,7 @@ const createSchema = {
 };
 
 export async function POST(req: NextRequest) {
-  const admin = await getSessionAdmin();
+  const admin = await requireAdminRole(["admin", "operations", "sales"]);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = createSchema.parse(await req.json());
   if (!body.name?.trim()) return NextResponse.json({ error: "Clinic name is required." }, { status: 400 });
@@ -135,18 +125,32 @@ export async function POST(req: NextRequest) {
       notes: body.notes,
       createdById: admin.id,
       updatedById: admin.id,
-      ownerId: admin.id,
-      services: body.services.length
-        ? { create: body.services.map((slug) => ({ service: { connect: { slug } } })) }
-        : undefined,
-    },
-    include: { services: { include: { service: true } } },
+      ownerId: admin.id
+    }
   });
 
+  // Handle service mappings if provided
+  if (body.services && body.services.length > 0) {
+    for (const serviceSlug of body.services) {
+      const taxonomy = await db.service.findUnique({ where: { slug: serviceSlug } });
+      if (taxonomy) {
+        await db.clinicService.create({
+          data: {
+            clinicId: clinic.id,
+            serviceId: taxonomy.id,
+            pricingModel: "unknown"
+          }
+        });
+      }
+    }
+  }
+
   await recalcReadiness(clinic.id);
+  
   await db.clinicPipelineHistory.create({
-    data: { clinicId: clinic.id, toStage: body.pipelineStage, changedById: admin.id, note: "Clinic created" },
+    data: { clinicId: clinic.id, toStage: body.pipelineStage, changedById: admin.id, notes: "Clinic created" },
   });
+
   await logActivity({
     entityType: "clinic",
     entityId: clinic.id,

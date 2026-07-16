@@ -100,6 +100,7 @@ const VIEW_TITLES: Record<string, { title: string; sub: string }> = {
   "call-analytics": { title: "Call Analytics", sub: "Call performance" },
   "patient-analytics": { title: "Patient Analytics", sub: "Patient metrics" },
   "geographic-analytics": { title: "Geographic Analytics", sub: "Geo performance" },
+  "live-website-activity": { title: "Live Website Activity", sub: "PostHog event stream" },
   "settings": { title: "User Account", sub: "Account & configuration" },
   "team-access": { title: "Team and Access", sub: "Team members & roles" },
   "integrations": { title: "Integrations", sub: "Connected services" },

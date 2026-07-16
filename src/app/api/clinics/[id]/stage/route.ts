@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getSessionAdmin } from "@/lib/auth";
+import { requireAdminRole } from "@/lib/auth";
 import { logActivity, recalcReadiness } from "@/lib/data";
 import { STAGE_MAP } from "@/lib/constants";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const admin = await getSessionAdmin();
+  const admin = await requireAdminRole(["admin", "operations", "sales"]);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   const body = (await req.json()) as { toStage: string; reason?: string; note?: string; relatedCallId?: string; relatedTaskId?: string };
@@ -33,10 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       fromStage,
       toStage,
       changedById: admin.id,
-      reason: body.reason ?? null,
-      note: body.note ?? null,
-      relatedCallId: body.relatedCallId ?? null,
-      relatedTaskId: body.relatedTaskId ?? null,
+      notes: [body.reason, body.note, body.relatedCallId && `Call ${body.relatedCallId}`, body.relatedTaskId && `Task ${body.relatedTaskId}`].filter(Boolean).join(" · ") || null,
     },
   });
   await recalcReadiness(id);

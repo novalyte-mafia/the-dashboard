@@ -28,7 +28,7 @@ export async function GET() {
     pipelineValueAgg,
     revenueWonAgg,
     clinicCount,
-    clinics,
+    unclaimedDirectoryCount,
     todayFollowUps,
     overdueTasks,
     recentActivity,
@@ -47,10 +47,7 @@ export async function GET() {
     db.deal.aggregate({ _sum: { estimatedTotalValue: true }, where: { archived: false, stage: { notIn: ["won", "lost"] } } }),
     db.deal.aggregate({ _sum: { estimatedTotalValue: true }, where: { stage: { in: ["won", "active"] } } }),
     db.clinic.count({ where: { archived: false } }),
-    db.clinic.findMany({
-      where: { archived: false, doNotCall: false },
-      include: { contacts: { where: { isDecisionMaker: true }, take: 1 } },
-    }),
+    db.clinic.count({ where: { archived: false, directoryStatus: { in: ["unclaimed", "imported"] } } }),
     db.followUpTask.findMany({
       where: { status: { in: ["open", "in_progress"] }, dueDate: { gte: startOfToday, lte: endOfToday } },
       include: { clinic: { select: { name: true } } },
@@ -75,8 +72,7 @@ export async function GET() {
   if (followUpsDueToday > 0) priorities.push({ label: "Complete today's follow-ups", count: followUpsDueToday, href: "follow-ups", tone: "amber" });
   if (interestedClinics > 0) priorities.push({ label: "Review interested clinics", count: interestedClinics, href: "clinics", tone: "teal" });
   if (proposalsOutstanding > 0) priorities.push({ label: "Send requested proposals", count: proposalsOutstanding, href: "deals", tone: "amber" });
-  const unclaimedDir = clinics.filter((c) => c.directoryStatus === "unclaimed" || c.directoryStatus === "imported").length;
-  if (unclaimedDir > 0) priorities.push({ label: "Complete directory profiles", count: unclaimedDir, href: "directory", tone: "violet" });
+  if (unclaimedDirectoryCount > 0) priorities.push({ label: "Complete directory profiles", count: unclaimedDirectoryCount, href: "directory", tone: "violet" });
   if (meetingsBooked > 0) priorities.push({ label: "Prep upcoming meetings", count: meetingsBooked, href: "follow-ups", tone: "teal" });
 
   // Pipeline snapshot (only active outreach stages)

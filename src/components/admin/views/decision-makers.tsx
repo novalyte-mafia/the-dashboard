@@ -28,7 +28,7 @@ type DMRow = ClinicContact & {
 };
 
 export function DecisionMakersView() {
-  const { openClinic, navigate, openLogCall, refreshKey } = useNav();
+  const { openClinic, navigate, refreshKey } = useNav();
   const [clinics, setClinics] = useState<Clinic[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -162,7 +162,7 @@ export function DecisionMakersView() {
           className="h-7 text-xs"
           onClick={(e) => {
             e.stopPropagation();
-            openLogCall(c.clinicId, c.id);
+            navigate("call-console", c.clinicId);
           }}
         >
           <Phone className="size-3.5" /> Log call
@@ -170,7 +170,7 @@ export function DecisionMakersView() {
       ),
       hideOnMobile: true,
     },
-  ], [openLogCall]);
+  ], [navigate]);
 
   if (loading) return <LoadingState label="Loading decision-makers…" />;
 
