@@ -57,6 +57,7 @@ import {
   Check,
   RotateCcw,
   Sparkle,
+  SlidersHorizontal,
 } from "lucide-react";
 import { clinicService, callService } from "@/services";
 import { CALL_OUTCOMES, OUTCOME_MAP } from "@/lib/constants";
@@ -103,6 +104,7 @@ interface ScenarioConfig {
     copilotQuestion: string;
     facts?: string[];
     warning?: string;
+    objectionGuidance?: string;
   }[];
 }
 
@@ -196,6 +198,25 @@ const PRACTICE_SCENARIOS: ScenarioConfig[] = [
   }
 ];
 
+const OBJECTION_LIBRARY = [
+  { id: "obj_1", text: "Send me info via email", response: "Happy to. I'll send a 1-page overview and our directory link. Can I book a 10-min follow-up Thursday?" },
+  { id: "obj_2", text: "We already have a marketing agency", response: "Got it — most clinics we work with keep their agency for general marketing. We're a focused men's-health demand engine, not a replacement." },
+  { id: "obj_3", text: "Cost is a concern right now", response: "Understandable. We offer a pilot at break-even — if we deliver qualified patient leads in 30 days, we scale. If not, you walk away free." },
+  { id: "obj_4", text: "Need to think about it", response: "Of course. What specifically would you want to think through? I can address it now or send supporting data." },
+  { id: "obj_5", text: "Send me patient demand data", response: "Perfect — I'll send a ZIP-level demand report for your market. Best email?" },
+];
+
+const QUALIFICATION_CHECKLIST = [
+  { id: "q1", label: "Permission to list clinic in directory" },
+  { id: "q2", label: "Listing contact name and role confirmed" },
+  { id: "q3", label: "Public clinic name and phone verified" },
+  { id: "q4", label: "Address & locations verified" },
+  { id: "q5", label: "Services & telehealth availability confirmed" },
+  { id: "q6", label: "Booking URL or phone booking confirmed" },
+  { id: "q7", label: "Accepting new patients status confirmed" },
+  { id: "q12", label: "Follow-up owner and date agreed" },
+];
+
 export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | null }) {
   const { openClinic, refreshKey, refresh } = useNav();
   const [clinics, setClinics] = useState<Clinic[]>([]);
@@ -225,6 +246,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const [testAudioPlaying, setTestAudioPlaying] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const testStreamRef = useRef<MediaStream | null>(null);
+  const [research, setResearch] = useState<string | null>(null);
+  const [researchLoading, setResearchLoading] = useState(false);
 
   // Practice Configuration State
   const [practicePersona, setPracticePersona] = useState<string>("receptionist");
@@ -883,6 +906,64 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       setCallState("connected");
       setOnHold(false);
       toast.info("Session resumed");
+    }
+  }
+
+  async function startCall() {
+    if (startingCallRef.current || callState !== "idle") return;
+    if (!activeClinic?.primaryPhone) {
+      toast.error("Selected clinic has no phone number.");
+      return;
+    }
+
+    resetCallState();
+    startingCallRef.current = true;
+    setCallState("configuring");
+
+    if (isLiveMode) {
+      try {
+        const response = await fetch("/api/vapi/call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clinicId: activeClinic.id }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (payload.callSessionId) setCallSessionId(payload.callSessionId);
+        if (!response.ok) {
+          setCallState(payload.callSessionId ? "failed" : "idle");
+          toast.error(payload.error || "VOIP phone connection failed.");
+          return;
+        }
+        setProviderCallId(payload.callId ?? null);
+        setCallState("dialing");
+        toast.success(`VOIP Outbound bridged call triggered successfully.`);
+      } catch (err) {
+        setCallState("failed");
+        toast.error("Telephony API not reachable.");
+      } finally {
+        startingCallRef.current = false;
+      }
+    } else {
+      try {
+        const response = await fetch("/api/vapi/call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clinicId: activeClinic.id }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (payload.callSessionId) {
+          setCallSessionId(payload.callSessionId);
+          await fetch(`/api/calls/${payload.callSessionId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "dialing" }),
+          }).catch(() => undefined);
+        }
+      } catch (e) {
+        setCallSessionId(`sim_${Math.random().toString(36).substring(2, 9)}`);
+      }
+      setCallState("dialing");
+      startingCallRef.current = false;
     }
   }
 
