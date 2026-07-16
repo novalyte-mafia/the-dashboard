@@ -1011,7 +1011,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const filteredQueue = useMemo(() => {
     const clinicsList = clinics || [];
     return clinicsList.filter((c) =>
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       (c.city || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       (c.state || "").toLowerCase().includes(searchQuery.toLowerCase())
     );
@@ -2140,4 +2140,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       </div>
     </div>
   );
+}
+
+function formatDuration(s: number): string {
+  const mins = Math.floor(s / 60);
+  const secs = s % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
