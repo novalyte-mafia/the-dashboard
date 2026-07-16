@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   PhoneCall,
   PhoneOutgoing,
@@ -53,33 +54,146 @@ import {
   ChevronRight,
   Flame,
   Info,
-  SlidersHorizontal,
+  Check,
+  RotateCcw,
+  Sparkle,
 } from "lucide-react";
 import { clinicService, callService } from "@/services";
 import { CALL_OUTCOMES, OUTCOME_MAP } from "@/lib/constants";
 import { formatPhone, localTime, isWithinCallingHours, relativeTime, fullName } from "@/lib/format";
 import { toast } from "sonner";
 import type { Clinic, CallSession, CallState, CallOutcome } from "@/types";
-import { TelephonySimulator, SIMULATOR_DIALOGUE } from "@/lib/telephony-simulator";
+import { TelephonySimulator } from "@/lib/telephony-simulator";
 
-// Private Objection cheat sheet for Jamil
-const OBJECTION_LIBRARY = [
-  { id: "obj_1", text: "Send me info via email", response: "Happy to. I'll send a 1-page overview and our directory link. Can I book a 10-min follow-up Thursday?" },
-  { id: "obj_2", text: "We already have a marketing agency", response: "Got it — most clinics we work with keep their agency for general marketing. We're a focused men's-health demand engine, not a replacement." },
-  { id: "obj_3", text: "Cost is a concern right now", response: "Understandable. We offer a pilot at break-even — if we deliver qualified patient leads in 30 days, we scale. If not, you walk away free." },
-  { id: "obj_4", text: "Need to think about it", response: "Of course. What specifically would you want to think through? I can address it now or send supporting data." },
-  { id: "obj_5", text: "Send me patient demand data", response: "Perfect — I'll send a ZIP-level demand report for your market. Best email?" },
+// ---------------------------------------------------------------------------
+// PRACTICE PERSONAS
+// ---------------------------------------------------------------------------
+interface PersonaConfig {
+  id: string;
+  name: string;
+  role: string;
+  voiceName: string;
+  accent: string;
+  trait: string;
+  description: string;
+}
+
+const PRACTICE_PERSONAS: PersonaConfig[] = [
+  { id: "receptionist", name: "Priya Shah", role: "Receptionist", voiceName: "Google US English", accent: "US Standard", trait: "Helpful but busy", description: "Wants to know why you are calling and check if this is a sales call before routing." },
+  { id: "front_desk", name: "Tara Mills", role: "Front Desk Coordinator", voiceName: "Microsoft Zira", accent: "US West Coast", trait: "Gatekeeper", description: "Skeptical, guards the doctor's calendar, requests emails instead of calls." },
+  { id: "office_manager", name: "Amani Okafor", role: "Office Manager", voiceName: "Google UK English Female", accent: "UK Received Pronunciation", trait: "Detail-oriented", description: "Asks details about directory costs, listing options, and scheduling links." },
+  { id: "physician", name: "Dr. Marcus Cole", role: "Medical Director / Physician", voiceName: "Google US English Male", accent: "US Mid-Atlantic", trait: "Low patience", description: "Demands immediate explanation of value, clinical reputation, and patient volume." },
+  { id: "clinic_owner", name: "David Lin", role: "Clinic Owner", voiceName: "Microsoft David", accent: "US Western", trait: "Analytical", description: "Inquires about patient qualification, lead scoring, and ROI of directory." },
+  { id: "confused_employee", name: "Tyler Miller", role: "General Coordinator", voiceName: "Google US English Male", accent: "US Southern", trait: "Uninformed", description: "Friendly but doesn't know the decision-maker, easily distracted." }
 ];
 
-const QUALIFICATION_CHECKLIST = [
-  { id: "q1", label: "Permission to list clinic in directory" },
-  { id: "q2", label: "Listing contact name and role confirmed" },
-  { id: "q3", label: "Public clinic name and phone verified" },
-  { id: "q4", label: "Address & locations verified" },
-  { id: "q5", label: "Services & telehealth availability confirmed" },
-  { id: "q6", label: "Booking URL or phone booking confirmed" },
-  { id: "q7", label: "Accepting new patients status confirmed" },
-  { id: "q12", label: "Follow-up owner and date agreed" },
+// ---------------------------------------------------------------------------
+// PRACTICE SCENARIOS
+// ---------------------------------------------------------------------------
+interface ScenarioConfig {
+  id: string;
+  name: string;
+  objective: string;
+  initialPrompt: string;
+  dialogueTree: {
+    stage: string;
+    triggerKeywords: string[];
+    clinicSpeech: string;
+    copilotSuggestion: string;
+    copilotQuestion: string;
+    facts?: string[];
+    warning?: string;
+  }[];
+}
+
+const PRACTICE_SCENARIOS: ScenarioConfig[] = [
+  {
+    id: "scenario_friendly",
+    name: "Friendly Clinic Listing",
+    objective: "Verify contact name, confirm services (TRT & Telehealth), and secure permission to list profile.",
+    initialPrompt: "Hello, Summit Vitality, Priya speaking. How can I help you?",
+    dialogueTree: [
+      {
+        stage: "intro",
+        triggerKeywords: ["jamil", "novalyte", "directory", "hello", "hi"],
+        clinicSpeech: "Oh, hi Jamil. Yes, this is Summit Vitality. I am the Practice Manager. What listing is this?",
+        copilotSuggestion: "It's the Novalyte Men's Health Directory. We help local patients find TRT providers. May I confirm Dr. Cole is still the Medical Director?",
+        copilotQuestion: "Confirm if Dr. Marcus Cole is still the Medical Director.",
+        facts: ["Clinic Name: Summit Vitality Clinic", "Priya: Practice Manager"]
+      },
+      {
+        stage: "directory",
+        triggerKeywords: ["cole", "director", "yes", "confirm"],
+        clinicSpeech: "Yes, Dr. Cole is our Medical Director. We do hormone optimization here. What info do you need?",
+        copilotSuggestion: "Excellent. I have your main office at 1201 Congress Ave, Austin. Is that correct, and do you offer TRT and Peptide therapy?",
+        copilotQuestion: "Verify location address and TRT/Peptide services.",
+        facts: ["Medical Director: Dr. Marcus Cole"]
+      },
+      {
+        stage: "qualification",
+        triggerKeywords: ["address", "congress", "trt", "peptide"],
+        clinicSpeech: "Yes, that's our address. And yes, we provide TRT, Peptide therapy, and Telehealth visits for Texas residents.",
+        copilotSuggestion: "Perfect. We want to list you as verified for free. Do we have your permission to include your profile and booking link?",
+        copilotQuestion: "Request explicit directory and booking URL listing permission.",
+        warning: "Ensure you obtain explicit permission to publish the listing."
+      },
+      {
+        stage: "agreement",
+        triggerKeywords: ["permission", "list", "booking", "url", "verification"],
+        clinicSpeech: "Sure, listing us sounds great as long as it's free. Our booking link is summitvitality.com/book.",
+        copilotSuggestion: "Great, summitvitality.com/book. What is the best email to send your verified directory badge to?",
+        copilotQuestion: "Ask for her direct email to send the verification link.",
+        facts: ["Permission to list: GRANTED", "Booking URL: summitvitality.com/book"]
+      },
+      {
+        stage: "closing",
+        triggerKeywords: ["email", "priya@", "thank", "bye"],
+        clinicSpeech: "You can send it to priya@summitvitality.com. Talk to you soon, Jamil. Bye!",
+        copilotSuggestion: "Thank her, confirm email is priya@summitvitality.com, and click 'End Practice Call'.",
+        copilotQuestion: "Conclude call.",
+        facts: ["Email: priya@summitvitality.com"]
+      }
+    ]
+  },
+  {
+    id: "scenario_sales",
+    name: "Is This a Sales Call?",
+    objective: "Address sales objections, explain free directory value, and secure listing permission.",
+    initialPrompt: "Summit Vitality Clinic. Is this a sales call? We don't purchase marketing.",
+    dialogueTree: [
+      {
+        stage: "objections",
+        triggerKeywords: ["sales", "marketing", "no", "not a sales", "free"],
+        clinicSpeech: "Okay, because we get a dozen sales calls daily. If it's free, what's the catch? Why are you listing us?",
+        copilotSuggestion: "No catch at all. It's the Novalyte Men's Health Directory. We list qualified providers for free to serve patients. Can I verify Dr. Cole's role?",
+        copilotQuestion: "Reassure them that listings are free and ask about Dr. Cole.",
+        facts: ["Objection: Sales catch", "No cost confirmed"]
+      },
+      {
+        stage: "directory",
+        triggerKeywords: ["cole", "director", "confirm", "verified"],
+        clinicSpeech: "Dr. Marcus Cole is our director, yes. And we offer hormone care. But how do you make money if this is free?",
+        copilotSuggestion: "Basic listings are 100% free forever. We only charge if clinics opt in to receive premium guaranteed leads. May I confirm your office address?",
+        copilotQuestion: "Explain the business model clearly and verify address."
+      },
+      {
+        stage: "qualification",
+        triggerKeywords: ["address", "congress", "location", "trt"],
+        clinicSpeech: "Our address is 1201 Congress Ave, Austin. And yes, we offer TRT. I guess it's fine to list us if there's no bill.",
+        copilotSuggestion: "Perfect, thank you! May we also feature your booking link, summitvitality.com/book, in your verified listing?",
+        copilotQuestion: "Secure permission to publish the booking link.",
+        facts: ["Permission to list: GRANTED"]
+      },
+      {
+        stage: "closing",
+        triggerKeywords: ["book", "summitvitality", "link", "email"],
+        clinicSpeech: "Yes, you can list it. Send the verified badge link to priya@summitvitality.com so we can check it.",
+        copilotSuggestion: "Confirm the email priya@summitvitality.com and wrap up the call.",
+        copilotQuestion: "Conclude call.",
+        facts: ["Email: priya@summitvitality.com", "Booking link: summitvitality.com/book"]
+      }
+    ]
+  }
 ];
 
 export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | null }) {
@@ -92,10 +206,32 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const [mobileTab, setMobileTab] = useState<"dialer" | "copilot" | "notes">("dialer");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Dev vs. Live Mode
+  // Operating Modes
+  const [isPracticeMode, setIsPracticeMode] = useState(true);
   const [isLiveMode, setIsLiveMode] = useState(false);
 
-  // Call session states
+  // Audio setup test state
+  const [audioTestingOpen, setAudioTestingOpen] = useState(false);
+  const [micsList, setMicsList] = useState<MediaDeviceInfo[]>([]);
+  const [speakersList, setSpeakersList] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMic, setSelectedMic] = useState<string>("");
+  const [selectedSpeaker, setSelectedSpeaker] = useState<string>("");
+  const [micTestLevel, setMicTestLevel] = useState<number>(0);
+  const [isRecordingSample, setIsRecordingSample] = useState(false);
+  const [sampleDuration, setSampleDuration] = useState(0);
+  const [recordingBlobUrl, setRecordingBlobUrl] = useState<string | null>(null);
+  const [micTestPassed, setMicTestPassed] = useState(false);
+  const [speakerTestPassed, setSpeakerTestPassed] = useState(false);
+  const [testAudioPlaying, setTestAudioPlaying] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const testStreamRef = useRef<MediaStream | null>(null);
+
+  // Practice Configuration State
+  const [practicePersona, setPracticePersona] = useState<string>("receptionist");
+  const [practiceScenario, setPracticeScenario] = useState<string>("scenario_friendly");
+  const [practiceDifficulty, setPracticeDifficulty] = useState<"beginner" | "intermediate" | "advanced">("beginner");
+
+  // Call states
   const [callState, setCallState] = useState<CallState>("idle");
   const [callDuration, setCallDuration] = useState(0);
   const [muted, setMuted] = useState(false);
@@ -106,30 +242,24 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const [callSessionId, setCallSessionId] = useState<string | null>(null);
   const [providerCallId, setProviderCallId] = useState<string | null>(null);
 
-  // Workspace details
-  const [research, setResearch] = useState<string | null>(null);
-  const [researchLoading, setResearchLoading] = useState(false);
-
-  // Human-Led AI Copilot & Live Transcript
+  // Live Copilot & Transcript
   const [transcript, setTranscript] = useState<{ speaker: string; text: string; timestamp: string }[]>([]);
   const [activeStage, setActiveStage] = useState<string>("intro");
-  
-  // Suggested response (strictly private, text-only, never speaks out loud)
-  const [copilotSuggestion, setCopilotSuggestion] = useState<string | null>("Start a call to receive private, suggested talk tracks.");
+  const [copilotSuggestion, setCopilotSuggestion] = useState<string | null>("Place a call to receive private, suggested talk tracks.");
   const [copilotQuestion, setCopilotQuestion] = useState<string | null>(null);
   const [objectionGuidance, setObjectionGuidance] = useState<string | null>(null);
   const [clinicFacts, setClinicFacts] = useState<string[]>([]);
   const [copilotWarning, setCopilotWarning] = useState<string | null>(null);
   const [copilotNextAction, setCopilotNextAction] = useState<string | null>(null);
 
-  // Real-time voice metrics
+  // Live voice metrics
   const [speakingPace, setSpeakingPace] = useState<string>("Good (130 WPM)");
   const [interruptionWarning, setInterruptionWarning] = useState<boolean>(false);
   const [speakingListeningRatio, setSpeakingListeningRatio] = useState<string>("50:50");
   const [callQualityScore, setCallQualityScore] = useState<number>(0);
   const [aiCoachingFeedback, setAiCoachingFeedback] = useState<string | null>(null);
 
-  // Notes, Checklist & Outcomes panel
+  // Notes, Checklist & Outcomes
   const [notes, setNotes] = useState("");
   const [interestLevel, setInterestLevel] = useState<"unknown" | "cold" | "warm" | "hot">("unknown");
   const [outcome, setOutcome] = useState<CallOutcome | "">("");
@@ -148,6 +278,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     followUpMessage: string;
   } | null>(null);
 
+  // Practice Interactive Engines
+  const [isClinicSpeaking, setIsClinicSpeaking] = useState(false);
+  const [practiceInterruptionCount, setPracticeInterruptionCount] = useState(0);
+  const [scenarioStepIndex, setScenarioStepIndex] = useState(0);
+  const recognitionRef = useRef<any>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const simulatorRef = useRef<TelephonySimulator | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
@@ -158,7 +293,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     callDurationRef.current = callDuration;
   }, [callDuration]);
 
-  // Scroll transcript to bottom
+  // Scroll transcript
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcript]);
@@ -215,7 +350,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     };
   }, [callState]);
 
-  // Production Call Status Polling (No TTS, silent WebRTC or Call Bridging check)
+  // Live / Vapi Outbound Status Polling
   useEffect(() => {
     if (!isLiveMode || !providerCallId || callState === "ended" || callState === "idle") return;
     const poll = async () => {
@@ -240,9 +375,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     return () => window.clearInterval(interval);
   }, [providerCallId, callState, callSessionId, isLiveMode]);
 
-  // Development/Simulator Hook (Silent AI transcript and suggested coaching turns)
+  // Live Mode: Telephony Simulator (Silent operator guide)
   useEffect(() => {
-    if (isLiveMode) return;
+    if (isLiveMode || isPracticeMode) return;
     if (callState === "dialing" && !simulatorRef.current) {
       const sim = new TelephonySimulator((event) => {
         switch (event.type) {
@@ -275,9 +410,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             setCopilotWarning(event.payload.warning ?? null);
             setCopilotNextAction(event.payload.nextAction ?? null);
             if (event.payload.speakingPace) setSpeakingPace(event.payload.speakingPace);
-            if (event.payload.interruptionWarning !== undefined) {
-              setInterruptionWarning(event.payload.interruptionWarning);
-            }
+            if (event.payload.interruptionWarning !== undefined) setInterruptionWarning(event.payload.interruptionWarning);
             break;
           case "metrics":
             setSpeakingListeningRatio(event.payload.speakingListeningRatio);
@@ -296,19 +429,37 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         simulatorRef.current = null;
       }
     }
-  }, [callState, isLiveMode]);
+  }, [callState, isLiveMode, isPracticeMode]);
 
-  // Post-Call AI Summary mapping (Extracts speaker ratios and coaching parameters)
+  // Post-Call AI Summary mapping
   useEffect(() => {
     if (callState === "ended") {
-      if (!isLiveMode) {
+      if (isPracticeMode) {
+        // Generate dynamic Practice Scorecard
+        const calculatedScore = Math.max(30, 100 - (practiceInterruptionCount * 8) - (qualification.q1 ? 0 : 25));
+        setCallQualityScore(calculatedScore);
+        setSpeakingListeningRatio("53:47");
+        setAiCoachingFeedback(
+          calculatedScore >= 80
+            ? "Excellent directory verification technique. Great confidence addressing the free listing structure. Keep your pacing slow and let the clinic speak."
+            : "Focus on obtaining directory listing permission explicitly. Keep calm when sales objections are raised, and allow the clinic receptionist to finish talking."
+        );
         setPostCallSummary({
-          whatHappened: "Jamil contacted Summit Vitality Clinic and spoke with Priya, the Practice Manager. Verified Dr. Marcus Cole as the Medical Director and verified their listing information.",
-          objections: "Objection raised: 'We didn't sign up for this directory'. Clarified that the directory is free, which resolved the objection.",
+          whatHappened: `Practice simulation complete. Rehearsed the clinic scenario "${PRACTICE_SCENARIOS.find(s => s.id === practiceScenario)?.name}" with selected persona "${PRACTICE_PERSONAS.find(p => p.id === practicePersona)?.name}".`,
+          objections: qualification.q1 ? "Successfully handled sign-up/free directory objections." : "Objections raised but permission target was missed.",
+          commitments: qualification.q1 ? "Clinic receptionist granted listing verification permission." : "No commitments secured.",
+          sentiment: qualification.q1 ? "Friendly, helpful" : "Skeptical, busy",
+          nextSteps: "Confirm details in real directory outreach.",
+          followUpMessage: "Review practice dialogue turns for compliance tips.",
+        });
+      } else if (!isLiveMode) {
+        setPostCallSummary({
+          whatHappened: "Jamil contacted Summit Vitality Clinic and spoke with Priya, the Practice Manager. Verified Dr. Marcus Cole as the Medical Director and verified their listing details.",
+          objections: "Initial objection raised: 'We didn't sign up for this directory'. Clarified that the directory is free, which resolved the objection.",
           commitments: "Priya granted Jamil explicit permission to publish the clinic as verified in the Novalyte directory.",
-          sentiment: "Receptive and cooperative.",
+          sentiment: "Positive and receptive.",
           nextSteps: "Email verified link to priya@summitvitality.com and follow up next month.",
-          followUpMessage: "Hi Priya, thanks for verifying Summit Vitality Clinic today! Here is your directory listing: directory.novalyte.io/summit-vitality. We'll follow up next month. Best, Jamil from Novalyte.",
+          followUpMessage: "Hi Priya, thanks for verifying Summit Vitality Clinic today! Here is your listing link: directory.novalyte.io/summit-vitality. We will check in next month. Best, Jamil.",
         });
         setOutcome("interested");
         setInterestLevel("warm");
@@ -320,14 +471,309 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           objections: "None recorded.",
           commitments: "Review transcript details.",
           sentiment: "Neutral",
-          nextSteps: "Save log to trigger backend processing.",
+          nextSteps: "Save log to trigger backend database logging.",
           followUpMessage: "Draft follow-up email has not been generated yet.",
         });
       }
     }
-  }, [callState, isLiveMode]);
+  }, [callState, isLiveMode, isPracticeMode, practiceScenario, practicePersona, practiceInterruptionCount, qualification]);
 
   const activeClinic = useMemo(() => clinics.find((c) => c.id === activeClinicId) ?? null, [clinics, activeClinicId]);
+
+  // Audio setup test controllers
+  const startAudioTesting = async () => {
+    setAudioTestingOpen(true);
+    setMicTestPassed(false);
+    setSpeakerTestPassed(false);
+    setRecordingBlobUrl(null);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      testStreamRef.current = stream;
+      
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices.filter((d) => d.kind === "audioinput");
+      const speakers = devices.filter((d) => d.kind === "audiooutput");
+      
+      setMicsList(mics);
+      setSpeakersList(speakers);
+      
+      if (mics.length > 0) setSelectedMic(mics[0].deviceId);
+      if (speakers.length > 0) setSelectedSpeaker(speakers[0].deviceId);
+
+      // Start decibel analyzer
+      startMicVisualizer(stream);
+    } catch (err) {
+      toast.error("Microphone access denied or not connected.");
+    }
+  };
+
+  const stopAudioTesting = () => {
+    if (testStreamRef.current) {
+      testStreamRef.current.getTracks().forEach((track) => track.stop());
+      testStreamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    setAudioTestingOpen(false);
+  };
+
+  const startMicVisualizer = (stream: MediaStream) => {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    audioContextRef.current = ctx;
+    const analyser = ctx.createAnalyser();
+    const source = ctx.createMediaStreamSource(stream);
+    source.connect(analyser);
+    analyser.fftSize = 256;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const checkLevel = () => {
+      if (!testStreamRef.current || !testStreamRef.current.active) return;
+      analyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i];
+      }
+      const avg = sum / bufferLength;
+      setMicTestLevel(Math.min(100, Math.round((avg / 128) * 100)));
+      requestAnimationFrame(checkLevel);
+    };
+    checkLevel();
+  };
+
+  const recordMicSample = () => {
+    if (!testStreamRef.current) return;
+    setIsRecordingSample(true);
+    setSampleDuration(0);
+    const mediaRecorder = new MediaRecorder(testStreamRef.current);
+    const chunks: Blob[] = [];
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(chunks, { type: "audio/webm" });
+      const url = URL.createObjectURL(blob);
+      setRecordingBlobUrl(url);
+      setIsRecordingSample(false);
+      setMicTestPassed(true);
+      toast.success("Microphone recording test completed successfully!");
+    };
+
+    mediaRecorder.start();
+
+    let seconds = 0;
+    const interval = setInterval(() => {
+      seconds++;
+      setSampleDuration(seconds);
+      if (seconds >= 3) {
+        clearInterval(interval);
+        mediaRecorder.stop();
+      }
+    }, 1000);
+  };
+
+  const playVoiceTest = () => {
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      toast.error("Speech Synthesis is not supported in this browser.");
+      return;
+    }
+    setTestAudioPlaying(true);
+    window.speechSynthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance("Hello Jamil. This is a test of the AI clinic voice. Can you hear me clearly?");
+    
+    const voices = window.speechSynthesis.getVoices();
+    // Select selected voice name if any
+    const personaObj = PRACTICE_PERSONAS.find(p => p.id === practicePersona);
+    const voice = voices.find(v => v.name.includes(personaObj?.voiceName || "English")) || voices.find(v => v.lang.startsWith("en")) || voices[0];
+    
+    if (voice) utterance.voice = voice;
+    utterance.volume = 1.0;
+    utterance.rate = 1.0;
+
+    utterance.onend = () => {
+      setTestAudioPlaying(false);
+      setSpeakerTestPassed(true);
+      toast.success("Voice output check completed.");
+    };
+
+    utterance.onerror = () => {
+      setTestAudioPlaying(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // ---------------------------------------------------------------------------
+  // INTERACTIVE WEB SPEECH API PRACTICE CALL ENGINE
+  // ---------------------------------------------------------------------------
+  const startPracticeCall = () => {
+    if (!micTestPassed || !speakerTestPassed) {
+      toast.error("Please complete the Microphone and Speaker audio tests before starting.");
+      startAudioTesting();
+      return;
+    }
+
+    resetCallState();
+    setCallState("dialing");
+    setScenarioStepIndex(0);
+    setPracticeInterruptionCount(0);
+    stopAudioTesting();
+
+    // Dials and connects in 2 seconds
+    setTimeout(() => {
+      setCallState("connected");
+      // Initial clinic greeting
+      const scenario = PRACTICE_SCENARIOS.find((s) => s.id === practiceScenario) || PRACTICE_SCENARIOS[0];
+      setTranscript([
+        { speaker: "Clinic", text: scenario.initialPrompt, timestamp: new Date().toISOString() }
+      ]);
+      speakPracticeText(scenario.initialPrompt);
+      updateCopilotSuggestions(0, scenario);
+      startSpeechRecognition();
+    }, 2000);
+  };
+
+  const speakPracticeText = (text: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    setIsClinicSpeaking(true);
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const personaObj = PRACTICE_PERSONAS.find(p => p.id === practicePersona);
+    const voice = voices.find(v => v.name.includes(personaObj?.voiceName || "English")) || voices.find(v => v.lang.startsWith("en")) || voices[0];
+    
+    if (voice) utterance.voice = voice;
+    utterance.volume = speakerEnabled ? 1.0 : 0.0;
+    
+    // Adjust speed by difficulty
+    utterance.rate = practiceDifficulty === "beginner" ? 0.85 : practiceDifficulty === "advanced" ? 1.15 : 1.00;
+
+    utterance.onend = () => {
+      setIsClinicSpeaking(false);
+    };
+    utterance.onerror = () => {
+      setIsClinicSpeaking(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const startSpeechRecognition = () => {
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) {
+      toast.error("Web Speech Recognition API is not supported in this browser.");
+      return;
+    }
+    const rec = new SpeechRec();
+    recognitionRef.current = rec;
+    rec.continuous = true;
+    rec.interimResults = false;
+    rec.lang = "en-US";
+
+    rec.onstart = () => {
+      toast.info("Microphone listening... Speak naturally.");
+    };
+
+    rec.onresult = (e: any) => {
+      const latest = e.results[e.results.length - 1];
+      if (latest.isFinal) {
+        const spokenText = latest[0].transcript.trim();
+        handleUserSpeechInput(spokenText);
+      }
+    };
+
+    rec.onerror = (e: any) => {
+      if (e.error !== "no-speech") {
+        console.error("SpeechRecognition error:", e.error);
+      }
+    };
+
+    rec.onend = () => {
+      if (callState === "connected") {
+        // Auto-restart recognition loop if call is active
+        try { rec.start(); } catch (err) {}
+      }
+    };
+
+    rec.start();
+  };
+
+  const handleUserSpeechInput = (text: string) => {
+    if (!text) return;
+
+    // Barge-in: Mute the clinic immediately if Jamil interrupts
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      setIsClinicSpeaking(false);
+      setPracticeInterruptionCount((c) => c + 1);
+      setInterruptionWarning(true);
+      toast.warning("Interruption warning: Let the clinic speak.");
+      setTimeout(() => setInterruptionWarning(false), 3000);
+    }
+
+    // Push operator text to transcript
+    setTranscript((prev) => [...prev, { speaker: "Jamil", text, timestamp: new Date().toISOString() }]);
+
+    // Trigger next dialogue turn from the scenario Dialogue Tree
+    const scenario = PRACTICE_SCENARIOS.find((s) => s.id === practiceScenario) || PRACTICE_SCENARIOS[0];
+    const nextStepIdx = scenarioStepIndex + 1;
+
+    if (nextStepIdx < scenario.dialogueTree.length) {
+      const nextTurnObj = scenario.dialogueTree[nextStepIdx];
+      
+      // Update step index
+      setScenarioStepIndex(nextStepIdx);
+
+      // Simulate a thinking delay (1-2s) before clinic responds
+      setTimeout(() => {
+        setTranscript((prev) => [...prev, { speaker: "Clinic", text: nextTurnObj.clinicSpeech, timestamp: new Date().toISOString() }]);
+        speakPracticeText(nextTurnObj.clinicSpeech);
+        updateCopilotSuggestions(nextStepIdx, scenario);
+      }, 1200);
+    } else {
+      // Out of script turns: wrap up the call
+      setTimeout(() => {
+        const wrapUpText = "Okay Jamil, that sounds good. We are all set here. Goodbye!";
+        setTranscript((prev) => [...prev, { speaker: "Clinic", text: wrapUpText, timestamp: new Date().toISOString() }]);
+        speakPracticeText(wrapUpText);
+        setCopilotSuggestion("Outreach target met. Click 'End Practice Call' to finalize.");
+        setCopilotQuestion(null);
+      }, 1500);
+    }
+  };
+
+  const updateCopilotSuggestions = (stepIdx: number, scenario: ScenarioConfig) => {
+    const currentStep = scenario.dialogueTree[stepIdx];
+    if (!currentStep) return;
+
+    setActiveStage(currentStep.stage);
+    setCopilotSuggestion(currentStep.copilotSuggestion);
+    setCopilotQuestion(currentStep.copilotQuestion);
+    setObjectionGuidance(currentStep.objectionGuidance ?? null);
+    setClinicFacts(currentStep.facts ?? []);
+    setCopilotWarning(currentStep.warning ?? null);
+  };
+
+  const stopSpeechRecognition = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.onend = null;
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    setIsClinicSpeaking(false);
+  };
 
   // Helpers
   async function persistCallSession(data: Record<string, unknown>) {
@@ -377,97 +823,66 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setSpeakingListeningRatio("50:50");
     setCallQualityScore(0);
     setAiCoachingFeedback(null);
-  }
-
-  // Dialer triggering
-  async function startCall() {
-    if (startingCallRef.current || callState !== "idle") return;
-    if (!activeClinic?.primaryPhone) {
-      toast.error("Selected clinic has no phone number.");
-      return;
-    }
-
-    resetCallState();
-    startingCallRef.current = true;
-    setCallState("configuring");
-
-    if (isLiveMode) {
-      try {
-        const response = await fetch("/api/vapi/call", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clinicId: activeClinic.id }),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (payload.callSessionId) setCallSessionId(payload.callSessionId);
-        if (!response.ok) {
-          setCallState(payload.callSessionId ? "failed" : "idle");
-          toast.error(payload.error || "VOIP phone connection failed.");
-          return;
-        }
-        setProviderCallId(payload.callId ?? null);
-        setCallState("dialing");
-        toast.success(`VOIP Outbound bridged call triggered successfully.`);
-      } catch (err) {
-        setCallState("failed");
-        toast.error("Telephony API not reachable.");
-      } finally {
-        startingCallRef.current = false;
-      }
-    } else {
-      try {
-        const response = await fetch("/api/vapi/call", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clinicId: activeClinic.id }),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (payload.callSessionId) {
-          setCallSessionId(payload.callSessionId);
-          await fetch(`/api/calls/${payload.callSessionId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "dialing" }),
-          }).catch(() => undefined);
-        }
-      } catch (e) {
-        setCallSessionId(`sim_${Math.random().toString(36).substring(2, 9)}`);
-      }
-      setCallState("dialing");
-      startingCallRef.current = false;
-    }
+    setScenarioStepIndex(0);
+    setPracticeInterruptionCount(0);
+    stopSpeechRecognition();
   }
 
   function endCall() {
     setCallState("ended");
-    if (simulatorRef.current) {
-      simulatorRef.current.stop();
-    }
+    stopSpeechRecognition();
     if (timerRef.current) clearInterval(timerRef.current);
+    
+    // Save to Supabase setting environment to practice
     void persistCallSession({
       status: "ended",
       endedAt: new Date().toISOString(),
       durationSec: callDuration,
+      callEnvironment: isPracticeMode ? "practice" : "live",
+      structuredData: {
+        isPractice: isPracticeMode,
+        practiceScenario,
+        practicePersona,
+        practiceDifficulty,
+        callQualityScore,
+        speakingListeningRatio,
+        interruptionCount: practiceInterruptionCount,
+      }
     });
-    toast.info(`Call ended · ${formatDuration(callDuration)}`);
+    toast.info(`Session ended · ${formatDuration(callDuration)}`);
   }
 
   function toggleMute() {
     setMuted((m) => !m);
+    if (recognitionRef.current) {
+      if (!muted) {
+        recognitionRef.current.stop();
+      } else {
+        try { recognitionRef.current.start(); } catch (e) {}
+      }
+    }
     toast.info(muted ? "Microphone active" : "Microphone muted");
   }
 
   function toggleHold() {
     if (callState === "connected") {
-      if (simulatorRef.current) simulatorRef.current.pause();
+      if (isPracticeMode) {
+        stopSpeechRecognition();
+      } else if (simulatorRef.current) {
+        simulatorRef.current.pause();
+      }
       setCallState("on_hold");
       setOnHold(true);
-      toast.info("Call placed on hold");
+      toast.info("Session on hold");
     } else if (callState === "on_hold") {
-      if (simulatorRef.current) simulatorRef.current.resume();
+      if (isPracticeMode) {
+        startSpeechRecognition();
+      } else if (simulatorRef.current) {
+        simulatorRef.current.resume();
+      }
       setCallState("connected");
       setOnHold(false);
-      toast.info("Call resumed");
+      toast.info("Session resumed");
     }
   }
 
@@ -507,7 +922,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
   async function saveCallLog() {
     if (!outcome) {
-      toast.error("Please select a call outcome before saving.");
+      toast.error("Please select an outcome before saving.");
       return;
     }
     if (!activeClinic) return;
@@ -518,12 +933,13 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       answered: outcomeConfig?.connected ?? false,
       decisionMakerReached: qualification.q1 ?? false,
       interestLevel,
-      notes: notes || `Call log: ${outcomeConfig?.label || outcome}`,
+      notes: notes || `Practice Session log: ${outcomeConfig?.label || outcome}`,
       nextAction: nextAction || undefined,
       nextActionAt: followUpDate ? new Date(followUpDate).toISOString() : undefined,
       followUpRequired: Boolean(nextAction),
       durationSec: callDuration,
       callSessionId: callSessionId ?? undefined,
+      callEnvironment: isPracticeMode ? "practice" : "live",
       structuredData: {
         onboardingChecklist: qualification,
         transcript: transcript,
@@ -533,6 +949,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         aiCoachingFeedback,
         directoryPermissionStatus: qualification.q1 ?? false,
         bookingLinkPermissionStatus: qualification.q6 ?? false,
+        callEnvironment: isPracticeMode ? "practice" : "live",
       },
     };
 
@@ -547,7 +964,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         const body = await response.json().catch(() => ({}));
         throw new Error(body.error || "Failed to save call session.");
       }
-      toast.success("Call logged and clinic pipeline updated successfully.");
+      toast.success(isPracticeMode ? "Practice session scorecard saved." : "Live call logged.");
       resetCallState();
       loadData();
       refresh();
@@ -556,9 +973,17 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     }
   }
 
-  // Analytics helper metrics
+  // Filter out practice sessions from live analytics metrics
   const analyticsMetrics = useMemo(() => {
-    const historyList = callHistory || [];
+    const historyList = (callHistory || []).filter((c) => {
+      try {
+        const struct = JSON.parse(c.structuredData || "{}");
+        return struct.callEnvironment !== "practice" && struct.isPractice !== true;
+      } catch (e) {
+        return true;
+      }
+    });
+
     const total = historyList.length;
     if (total === 0) return { count: 0, answerRate: 0, convRate: 0, permRate: 0, avgDuration: "0:00" };
 
@@ -599,14 +1024,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         <div>
           <h1 className="text-2xl font-bold tracking-tight">AI Calls Command Center</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Silent AI Voice Copilot workspace for human-operated calling and real-time coaching suggestions
+            Voice Copilot workspace for live clinic calling and simulated AI practice rehearsal
           </p>
         </div>
 
-        {/* Development Mode Badge Switch */}
+        {/* Operating Modes Selectors */}
         <div className="flex items-center gap-3 bg-card border rounded-lg px-3 py-1.5 shadow-sm">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            Mode:
+          <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
+            Mode Select:
           </span>
           <div className="flex items-center gap-1.5">
             <button
@@ -615,16 +1040,17 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   toast.error("Please end the active call before switching modes.");
                   return;
                 }
+                setIsPracticeMode(true);
                 setIsLiveMode(false);
-                toast.success("Switched to Simulated Dev Mode (Jamil Operator Simulator).");
+                toast.success("Switched to Practice Mode — AI Clinic Simulation.");
               }}
-              className={`text-xs px-2.5 py-1 rounded font-medium transition-colors ${
-                !isLiveMode
-                  ? "bg-amber-100 text-amber-800 ring-1 ring-amber-200"
-                  : "hover:bg-accent text-muted-foreground"
+              className={`text-xs px-2.5 py-1.5 rounded font-bold transition-all ${
+                isPracticeMode
+                  ? "bg-indigo-600 text-white shadow-sm border border-indigo-700"
+                  : "hover:bg-accent text-muted-foreground border border-transparent"
               }`}
             >
-              Simulated Dev Mode
+              Practice Mode (Simulation)
             </button>
             <button
               onClick={() => {
@@ -632,54 +1058,160 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   toast.error("Please end the active call before switching modes.");
                   return;
                 }
+                setIsPracticeMode(false);
                 setIsLiveMode(true);
-                toast.success("Switched to Live Vapi Phone Bridging Mode.");
+                toast.success("Switched to Live Mode — Real Clinic Call.");
               }}
-              className={`text-xs px-2.5 py-1 rounded font-medium transition-colors ${
+              className={`text-xs px-2.5 py-1.5 rounded font-bold transition-all ${
                 isLiveMode
-                  ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200"
-                  : "hover:bg-accent text-muted-foreground"
+                  ? "bg-rose-600 text-white shadow-sm border border-rose-700"
+                  : "hover:bg-accent text-muted-foreground border border-transparent"
               }`}
             >
-              Live Vapi Mode
+              Live Clinic Mode (Muted AI)
             </button>
           </div>
         </div>
       </div>
 
+      {/* MODE LABEL WATERMARKS */}
+      <div className={`p-2.5 rounded-lg border text-center text-xs font-bold uppercase tracking-widest transition-colors ${
+        isPracticeMode
+          ? "bg-indigo-50 border-indigo-200 text-indigo-800"
+          : "bg-rose-50 border-rose-200 text-rose-800"
+      }`}>
+        {isPracticeMode ? "🔔 PRACTICE MODE — AI CLINIC SIMULATION (Real Voice Mic Active)" : "⚠️ LIVE CLINIC MODE — REAL CLINIC CALL (AI Copilot is SILENT)"}
+      </div>
+
       {/* PERFORMANCE ANALYTICS BAR */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <MetricCard label="Total Calls" value={analyticsMetrics.count} icon={PhoneCall} tone="default" hint="All attempts logged" />
+        <MetricCard label="Total Live Calls" value={analyticsMetrics.count} icon={PhoneCall} tone="default" hint="Practice calls excluded" />
         <MetricCard label="Answer Rate" value={`${analyticsMetrics.answerRate}%`} icon={TrendingUp} tone="teal" hint="Calls connected" />
         <MetricCard label="Conversations" value={`${analyticsMetrics.convRate}%`} icon={Activity} tone="violet" hint="Decision maker reached" />
         <MetricCard label="Listing Permission" value={`${analyticsMetrics.permRate}%`} icon={Award} tone="green" hint="Of conversations" />
         <MetricCard label="Avg Duration" value={analyticsMetrics.avgDuration} icon={Clock} tone="amber" hint="Average call time" />
       </div>
 
+      {/* AUDIO SETUP TEST COMPONENT */}
+      {audioTestingOpen && (
+        <Card className="p-4 border-amber-200 bg-amber-50/20 space-y-4 animate-in slide-in-from-top-3 duration-250">
+          <div className="flex items-center justify-between border-b pb-2">
+            <span className="font-bold text-sm flex items-center gap-1.5">
+              <SlidersHorizontal className="size-4 text-amber-600" /> Audio Setup Setup & Hardware Test
+            </span>
+            <Button variant="ghost" size="icon" className="size-7" onClick={stopAudioTesting}>
+              <VolumeX className="size-4" />
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            {/* Input & Output selection */}
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="font-semibold text-muted-foreground">Select Microphone (Input)</label>
+                <Select value={selectedMic} onValueChange={setSelectedMic}>
+                  <SelectTrigger className="h-8 text-xs bg-background">
+                    <SelectValue placeholder="Microphone" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {micsList.map((mic) => (
+                      <SelectItem key={mic.deviceId} value={mic.deviceId}>{mic.label || `Microphone ${mic.deviceId.slice(0, 5)}`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-muted-foreground">Select Speaker (Output)</label>
+                <Select value={selectedSpeaker} onValueChange={setSelectedSpeaker}>
+                  <SelectTrigger className="h-8 text-xs bg-background">
+                    <SelectValue placeholder="Speaker / Headset" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {speakersList.map((spk) => (
+                      <SelectItem key={spk.deviceId} value={spk.deviceId}>{spk.label || `Speaker ${spk.deviceId.slice(0, 5)}`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Volume decibel bar visualizer */}
+              <div className="space-y-1">
+                <span className="font-semibold text-muted-foreground">Microphone Input Level</span>
+                <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden border">
+                  <div
+                    className="h-full bg-emerald-500 transition-all duration-75"
+                    style={{ width: `${micTestLevel}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Hardware action loops */}
+            <div className="bg-background border rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-bold block">1. Microphone Recording Loop</span>
+                  <span className="text-[10px] text-muted-foreground">Record 3s sample to check audio capture</span>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={recordMicSample}
+                  disabled={isRecordingSample}
+                  className="h-7 text-xs"
+                >
+                  {isRecordingSample ? `Recording (${sampleDuration}s)` : "Record"}
+                </Button>
+              </div>
+
+              {recordingBlobUrl && (
+                <div className="flex items-center gap-2 pt-1 border-t border-dashed">
+                  <span className="font-semibold text-[10px]">Play sample:</span>
+                  <audio src={recordingBlobUrl} className="h-8 flex-1" controls />
+                </div>
+              )}
+
+              <div className="flex items-center justify-between border-t pt-2 border-dashed">
+                <div>
+                  <span className="font-bold block">2. Text-to-Speech Speaker Check</span>
+                  <span className="text-[10px] text-muted-foreground">Plays test audio to confirm volume level</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={playVoiceTest}
+                  disabled={testAudioPlaying}
+                  className="h-7 text-xs gap-1"
+                >
+                  <Volume2 className="size-3" /> {testAudioPlaying ? "Playing..." : "Test Voice"}
+                </Button>
+              </div>
+
+              {/* Status validation matrix */}
+              <div className="flex items-center gap-2.5 pt-2 border-t text-[11px] font-semibold">
+                <div className="flex items-center gap-1">
+                  <span className={`size-2 rounded-full ${micTestPassed ? "bg-emerald-500" : "bg-slate-300"}`} />
+                  Mic Test: {micTestPassed ? "PASS" : "WAIT"}
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className={`size-2 rounded-full ${speakerTestPassed ? "bg-emerald-500" : "bg-slate-300"}`} />
+                  Speaker Test: {speakerTestPassed ? "PASS" : "WAIT"}
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* MOBILE SCREEN NAVIGATION TABS */}
       <div className="flex lg:hidden border-b pb-1 gap-1">
-        <Button
-          variant={mobileTab === "dialer" ? "default" : "ghost"}
-          size="sm"
-          className="flex-1 text-xs"
-          onClick={() => setMobileTab("dialer")}
-        >
+        <Button variant={mobileTab === "dialer" ? "default" : "ghost"} size="sm" className="flex-1 text-xs" onClick={() => setMobileTab("dialer")}>
           Dialer / Profile
         </Button>
-        <Button
-          variant={mobileTab === "copilot" ? "default" : "ghost"}
-          size="sm"
-          className="flex-1 text-xs gap-1.5"
-          onClick={() => setMobileTab("copilot")}
-        >
+        <Button variant={mobileTab === "copilot" ? "default" : "ghost"} size="sm" className="flex-1 text-xs gap-1.5" onClick={() => setMobileTab("copilot")}>
           <Sparkles className="size-3 text-amber-500 fill-amber-500" /> AI Copilot
         </Button>
-        <Button
-          variant={mobileTab === "notes" ? "default" : "ghost"}
-          size="sm"
-          className="flex-1 text-xs"
-          onClick={() => setMobileTab("notes")}
-        >
+        <Button variant={mobileTab === "notes" ? "default" : "ghost"} size="sm" className="flex-1 text-xs" onClick={() => setMobileTab("notes")}>
           Log / Outcome
         </Button>
       </div>
@@ -688,32 +1220,22 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         
         {/* LEFT COLUMN: Queue & History List */}
-        <Card className="lg:col-span-3 p-0 flex flex-col h-[65vh] lg:h-[calc(100vh-270px)] overflow-hidden shrink-0">
+        <Card className="lg:col-span-3 p-0 flex flex-col h-[65vh] lg:h-[calc(100vh-320px)] overflow-hidden shrink-0">
           <div className="border-b px-3 py-2 flex items-center justify-between bg-muted/20 shrink-0">
             <div className="flex items-center gap-1">
-              <Button
-                variant={sidebarTab === "queue" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-8 text-xs font-semibold px-3"
-                onClick={() => setSidebarTab("queue")}
-              >
+              <Button variant={sidebarTab === "queue" ? "secondary" : "ghost"} size="sm" className="h-8 text-xs font-semibold px-3" onClick={() => setSidebarTab("queue")}>
                 Queue ({clinics.length})
               </Button>
-              <Button
-                variant={sidebarTab === "history" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-8 text-xs font-semibold px-3"
-                onClick={() => setSidebarTab("history")}
-              >
+              <Button variant={sidebarTab === "history" ? "secondary" : "ghost"} size="sm" className="h-8 text-xs font-semibold px-3" onClick={() => setSidebarTab("history")}>
                 History
               </Button>
             </div>
-            <Badge variant="outline" className="text-[10px] uppercase font-mono">
-              {isLiveMode ? "LIVE" : "SIM"}
+            <Badge variant="outline" className="text-[10px] uppercase font-mono bg-background">
+              {isPracticeMode ? "PRACTICE" : "LIVE"}
             </Badge>
           </div>
 
-          {/* Search box for queue */}
+          {/* Search box */}
           {sidebarTab === "queue" && (
             <div className="px-3 py-2 border-b shrink-0 bg-background flex items-center gap-2">
               <Search className="size-4 text-muted-foreground" />
@@ -751,12 +1273,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                         <span className="truncate">{[clinic.city, clinic.state].filter(Boolean).join(", ")}</span>
                         <div className="flex items-center gap-1 shrink-0">
                           <span className="font-mono">{localTime(clinic.timezone)}</span>
-                          <span className={`size-1.5 rounded-full ${withinHours ? "bg-emerald-500 animate-pulse" : "bg-rose-400"}`} />
+                          <span className={`size-1.5 rounded-full ${withinHours ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`} />
                         </div>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1 border-t pt-1 border-dotted border-muted">
-                        <span>Phone: {formatPhone(clinic.primaryPhone)}</span>
-                        <span>Attempts: {clinic.callAttempts}</span>
                       </div>
                     </button>
                   );
@@ -764,7 +1282,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               )
             ) : (
               callHistory.length === 0 ? (
-                <EmptyState icon={History} title="No history" description="No calls have been logged yet." />
+                <EmptyState icon={History} title="No history" description="No logged calls." />
               ) : (
                 callHistory.map((session) => (
                   <div key={session.id} className="p-3 text-xs flex flex-col gap-1.5 hover:bg-muted/10">
@@ -773,9 +1291,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                       <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full ${
                         session.outcome === "interested" || session.outcome === "meeting_booked"
                           ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                          : session.outcome === "not_interested" || session.outcome === "do_not_call"
-                            ? "bg-rose-100 text-rose-800 border-rose-200"
-                            : "bg-slate-100 text-slate-800 border-slate-200"
+                          : "bg-slate-100 text-slate-800 border-slate-200"
                       }`}>
                         {OUTCOME_MAP[session.outcome]?.label || session.outcome}
                       </span>
@@ -791,9 +1307,95 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           </div>
         </Card>
 
-        {/* CENTER COLUMN: Dialer, Live Transcript & Stage tracks */}
+        {/* CENTER COLUMN: Dialer, Configs, Live transcript */}
         <div className={`lg:col-span-6 flex flex-col gap-4 ${mobileTab !== "dialer" ? "hidden lg:flex" : ""}`}>
           
+          {/* CONFIGURATION PANEL FOR PRACTICE MODE */}
+          {isPracticeMode && callState === "idle" && (
+            <Card className="p-4 border-indigo-200 bg-indigo-50/10 space-y-3.5">
+              <span className="font-bold text-sm flex items-center gap-1.5 text-indigo-950">
+                <SlidersHorizontal className="size-4 text-indigo-600" /> AI Practice Simulator Configurations
+              </span>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                {/* Persona */}
+                <div className="space-y-1">
+                  <label className="font-semibold text-muted-foreground block">Simulated Clinic Role</label>
+                  <Select value={practicePersona} onValueChange={setPracticePersona}>
+                    <SelectTrigger className="h-8 text-xs bg-background border-indigo-200">
+                      <SelectValue placeholder="Role Persona" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PRACTICE_PERSONAS.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.role} ({p.name})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground italic mt-1 leading-normal">
+                    {PRACTICE_PERSONAS.find(p => p.id === practicePersona)?.description}
+                  </p>
+                </div>
+
+                {/* Scenario */}
+                <div className="space-y-1">
+                  <label className="font-semibold text-muted-foreground block">Call Scenario Library</label>
+                  <Select value={practiceScenario} onValueChange={setPracticeScenario}>
+                    <SelectTrigger className="h-8 text-xs bg-background border-indigo-200">
+                      <SelectValue placeholder="Scenario" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PRACTICE_SCENARIOS.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground italic mt-1 leading-normal">
+                    {PRACTICE_SCENARIOS.find(s => s.id === practiceScenario)?.objective}
+                  </p>
+                </div>
+
+                {/* Difficulty */}
+                <div className="space-y-1">
+                  <label className="font-semibold text-muted-foreground block">Difficulty Level</label>
+                  <div className="flex gap-1.5 mt-0.5">
+                    {(["beginner", "intermediate", "advanced"] as const).map((level) => {
+                      const isLvlSelected = practiceDifficulty === level;
+                      return (
+                        <button
+                          key={level}
+                          onClick={() => setPracticeDifficulty(level)}
+                          className={`flex-1 text-[10px] py-1 border rounded-lg capitalize font-bold transition-all ${
+                            isLvlSelected
+                              ? "bg-indigo-600 text-white border-indigo-700 shadow-sm"
+                              : "bg-background text-muted-foreground border-indigo-200 hover:bg-muted"
+                          }`}
+                        >
+                          {level}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Hardware diagnostic warning check */}
+              <div className="flex items-center justify-between border-t border-indigo-100 pt-3 text-xs">
+                <span className="text-muted-foreground flex items-center gap-1.5">
+                  <SlidersHorizontal className="size-3 text-amber-500" />
+                  Hardware check: {micTestPassed && speakerTestPassed ? "Ready" : "Incomplete"}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={startAudioTesting}
+                  className="h-7 text-xs border-indigo-200 hover:bg-indigo-50"
+                >
+                  Configure Audio/Mic Devices
+                </Button>
+              </div>
+            </Card>
+          )}
+
           {/* ACTIVE CLINIC INFORMATION PROFILE */}
           {activeClinic ? (
             <Card className="p-4 flex flex-col gap-3">
@@ -819,7 +1421,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <PriorityBadge priority={activeClinic.priority} />
-                  <Badge variant="outline" className="font-mono text-xs">
+                  <Badge variant="outline" className="font-mono text-xs bg-background">
                     Score: {activeClinic.readinessScore}
                   </Badge>
                 </div>
@@ -828,17 +1430,17 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               {/* CONTACT DETAILS & LOCAL TIME */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 border-y py-2.5 text-xs">
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Primary Phone</p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wide">Primary Phone</p>
                   <p className="font-semibold text-foreground mt-0.5">{formatPhone(activeClinic.primaryPhone) || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Email Address</p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wide">Email Address</p>
                   <p className="truncate text-foreground mt-0.5" title={activeClinic.generalEmail ?? ""}>
                     {activeClinic.generalEmail ?? "—"}
                   </p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Website</p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wide">Website</p>
                   {activeClinic.website ? (
                     <a
                       href={activeClinic.website}
@@ -853,11 +1455,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   )}
                 </div>
                 <div>
-                  <p className="text-[10px] text-muted-foreground uppercase font-semibold">Local Time</p>
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wide">Local Time</p>
                   <p className="font-semibold text-foreground mt-0.5 flex items-center gap-1.5">
                     <Clock className="size-3 text-muted-foreground" />
                     <span>{localTime(activeClinic.timezone)}</span>
-                    <span className={`size-1.5 rounded-full ${isWithinCallingHours(activeClinic.timezone) ? "bg-emerald-500" : "bg-rose-500"}`} />
+                    <span className={`size-1.5 rounded-full ${isWithinCallingHours(activeClinic.timezone) ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`} />
                   </p>
                 </div>
               </div>
@@ -891,13 +1493,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
               {/* RESEARCH DETAILS */}
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={fetchClinicResearch}
-                  disabled={researchLoading}
-                  className="flex-1 text-xs gap-1.5"
-                >
+                <Button variant="outline" size="sm" onClick={fetchClinicResearch} disabled={researchLoading} className="flex-1 text-xs gap-1.5">
                   <Sparkles className="size-3.5 text-indigo-500" />
                   {researchLoading ? "Researching..." : "Retrieve AI Research Profile"}
                 </Button>
@@ -918,7 +1514,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
           {/* DOCK DIALER CONSOLE CONTROLLER */}
           {activeClinic && (
-            <Card className="bg-slate-900 border-slate-950 text-white p-4 shadow-xl flex flex-col gap-4 relative overflow-hidden">
+            <Card className={`text-white p-4 shadow-xl flex flex-col gap-4 relative overflow-hidden transition-colors ${
+              isPracticeMode ? "bg-slate-900 border-slate-950" : "bg-rose-950 border-rose-950"
+            }`}>
               <div className="absolute inset-0 bg-radial-gradient from-slate-800 to-slate-900 opacity-50 z-0 pointer-events-none" />
               <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
                 
@@ -937,15 +1535,15 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   </div>
                   <div className="text-center md:text-left">
                     <div className="flex items-center gap-1.5 justify-center md:justify-start">
-                      <span className="text-sm font-semibold tracking-wide">
-                        {callState === "idle" ? "READY TO DIAL" : callState.replace(/_/g, " ").toUpperCase()}
+                      <span className="text-xs font-bold tracking-wide uppercase">
+                        {isPracticeMode ? "PRACTICE SIMULATION" : "LIVE OUTBOUND CALL"}
                       </span>
                       <span className={`size-2 rounded-full ${
                         callState === "connected" ? "bg-emerald-500" : callState === "idle" ? "bg-slate-500" : "bg-amber-500"
                       }`} />
                     </div>
-                    <p className="text-xs text-slate-400 tracking-wider font-mono mt-0.5">
-                      {formatPhone(activeClinic.primaryPhone)}
+                    <p className="text-sm font-semibold tracking-wider font-mono mt-0.5">
+                      {isPracticeMode ? `Simulating ${PRACTICE_PERSONAS.find(p => p.id === practicePersona)?.name}` : formatPhone(activeClinic.primaryPhone)}
                     </p>
                   </div>
                 </div>
@@ -960,19 +1558,28 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 {/* Dial controller actions */}
                 <div className="flex items-center gap-2">
                   {callState === "idle" ? (
-                    <Button
-                      onClick={startCall}
-                      disabled={startingCallRef.current}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-6 h-11 rounded-lg flex items-center gap-2 shadow-lg"
-                    >
-                      <Phone className="size-4" /> DUAL AUDIO BRIDGE
-                    </Button>
+                    isPracticeMode ? (
+                      <Button
+                        onClick={startPracticeCall}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-6 h-11 rounded-lg flex items-center gap-2 shadow-lg"
+                      >
+                        <Mic className="size-4" /> START PRACTICE CALL
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={startCall}
+                        disabled={startingCallRef.current}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-6 h-11 rounded-lg flex items-center gap-2 shadow-lg"
+                      >
+                        <Phone className="size-4" /> Start Live Call
+                      </Button>
+                    )
                   ) : (
                     <Button
                       onClick={endCall}
                       className="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm px-6 h-11 rounded-lg flex items-center gap-2 shadow-lg"
                     >
-                      <PhoneOff className="size-4" /> End Bridge Call
+                      <PhoneOff className="size-4" /> Hang Up
                     </Button>
                   )}
                 </div>
@@ -1017,7 +1624,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   <button
                     onClick={() => {
                       setSpeakerEnabled(!speakerEnabled);
-                      toast.info(speakerEnabled ? "Speaker disabled" : "Speaker active");
+                      toast.info(speakerEnabled ? "Speaker muted" : "Speaker unmuted");
                     }}
                     disabled={callState === "ended"}
                     className={`flex flex-col items-center justify-center p-2 rounded-lg hover:bg-slate-800 transition-colors ${
@@ -1030,19 +1637,26 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
                   <button
                     onClick={() => {
-                      toast.warning("Transfer option not configured.");
+                      if (isPracticeMode && callState === "connected") {
+                        // Repeat last response
+                        const currentScenario = PRACTICE_SCENARIOS.find(s => s.id === practiceScenario);
+                        const currentStep = currentScenario?.dialogueTree[scenarioStepIndex];
+                        if (currentStep) speakPracticeText(currentStep.clinicSpeech);
+                      } else {
+                        toast.warning("Transfer not configured.");
+                      }
                     }}
-                    disabled={callState === "ended" || callState === "dialing" || callState === "ringing"}
+                    disabled={callState === "ended" || (isPracticeMode && callState === "dialing")}
                     className="flex flex-col items-center justify-center p-2 rounded-lg hover:bg-slate-800 transition-colors"
                   >
-                    <UserCheck className="size-5" />
-                    <span className="text-[10px] font-semibold mt-1">Transfer</span>
+                    {isPracticeMode ? <RotateCcw className="size-5" /> : <UserCheck className="size-5" />}
+                    <span className="text-[10px] font-semibold mt-1">{isPracticeMode ? "Repeat Speech" : "Transfer"}</span>
                   </button>
 
                   <div className="flex flex-col items-center justify-center p-2 text-slate-500">
                     <Clock className="size-5" />
-                    <span className="text-[9px] font-semibold mt-1 uppercase font-mono">
-                      {isLiveMode ? "LIVE" : "SIM"}
+                    <span className="text-[9px] font-bold mt-1 uppercase font-mono text-slate-400">
+                      {isPracticeMode ? "PRACTICE" : "LIVE"}
                     </span>
                   </div>
                 </div>
@@ -1075,14 +1689,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             <Card className="flex-1 flex flex-col p-0 min-h-[320px] max-h-[390px] overflow-hidden">
               <div className="px-4 py-3 border-b bg-muted/20 flex items-center justify-between shrink-0">
                 <span className="text-sm font-bold flex items-center gap-1.5">
-                  <Activity className="size-4 text-emerald-500 animate-pulse" /> Speaker-Separated Transcript
+                  <Activity className="size-4 text-emerald-500 animate-pulse" /> Live Call Transcript
                 </span>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" className="text-[10px] text-emerald-700 border-emerald-200 bg-emerald-50">
                     Jamil (Operator)
                   </Badge>
                   <Badge variant="outline" className="text-[10px] text-slate-700 border-slate-200 bg-slate-50">
-                    Clinic (Priya)
+                    {isPracticeMode ? `AI ${PRACTICE_PERSONAS.find(p => p.id === practicePersona)?.role}` : "Clinic"}
                   </Badge>
                 </div>
               </div>
@@ -1122,7 +1736,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           )}
         </div>
 
-        {/* RIGHT COLUMN: AI Copilot Coaching & Talk tracks */}
+        {/* RIGHT COLUMN: AI Copilot Coaching */}
         <div className={`lg:col-span-3 flex flex-col gap-4 ${mobileTab !== "copilot" ? "hidden lg:flex" : ""}`}>
           
           {/* DYNAMIC TALK TRACK STAGE PROGRESS */}
@@ -1161,7 +1775,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             </Card>
           )}
 
-          {/* AI VOICE COPILOT WORKSPACE (PRIVATE GLASSMORPHISM SCREEN - NO SPEAKER PLAYBACK) */}
+          {/* AI VOICE COPILOT CARD */}
           {activeClinic && (
             <Card className="p-4 bg-gradient-to-br from-indigo-50/50 via-purple-50/10 to-indigo-50/10 border-indigo-100 flex flex-col gap-3.5 relative overflow-hidden shadow-sm">
               <div className="absolute top-0 right-0 p-2 opacity-5 pointer-events-none">
@@ -1179,39 +1793,37 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   </div>
                 </div>
                 <Badge variant="secondary" className="bg-indigo-100 text-indigo-800 text-[9px] uppercase border border-indigo-200">
-                  Human-Led Mode
+                  {isPracticeMode ? "Sim Practice" : "Live Silent"}
                 </Badge>
               </div>
 
-              {/* Warnings Panel */}
-              {(copilotWarning || interruptionWarning) && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-lg p-2.5 text-xs flex flex-col gap-1.5 animate-in slide-in-from-top-2 duration-200">
-                  {interruptionWarning && (
-                    <div className="flex items-start gap-1.5">
-                      <AlertTriangle className="size-4 shrink-0 text-rose-500 mt-0.5" />
-                      <div>
-                        <span className="font-bold">Interruption warning:</span>
-                        <p className="text-[11px] text-rose-700 mt-0.5">You interrupted the clinic representative. Let them finish speaking.</p>
-                      </div>
-                    </div>
-                  )}
-                  {copilotWarning && (
-                    <div className="flex items-start gap-1.5">
-                      <AlertTriangle className="size-4 shrink-0 text-rose-500 mt-0.5" />
-                      <div>
-                        <span className="font-bold">Missing qualification warning:</span>
-                        <p className="text-[11px] text-rose-700 mt-0.5">{copilotWarning}</p>
-                      </div>
-                    </div>
-                  )}
+              {/* Interruption warning */}
+              {interruptionWarning && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-lg p-2.5 text-xs flex items-start gap-2 animate-bounce">
+                  <AlertTriangle className="size-4 shrink-0 text-rose-500 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Interruption warning:</span>
+                    <p className="mt-0.5">Let the clinic representative finish speaking before responding.</p>
+                  </div>
                 </div>
               )}
 
-              {/* SUGGESTED RESPONSE (PRIVATE - JAMIL READS) */}
+              {/* Warnings Panel */}
+              {copilotWarning && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-lg p-2.5 text-xs flex items-start gap-2">
+                  <AlertTriangle className="size-4 shrink-0 text-rose-500 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Compliance Checklist warning:</span>
+                    <p className="mt-0.5">{copilotWarning}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Suggestions */}
               <div className="space-y-3.5 text-xs">
                 <div>
                   <p className="text-[10px] text-indigo-700 font-bold uppercase tracking-wide flex items-center gap-1">
-                    <CheckCircle2 className="size-3.5 text-indigo-600" /> SUGGESTED RESPONSE (Read Out Loud)
+                    <CheckCircle2 className="size-3.5 text-indigo-600" /> SAY THIS NEXT (Suggested Response)
                   </p>
                   <div className="bg-white border border-indigo-100 p-3 rounded-lg text-slate-800 italic font-medium mt-1 relative group shadow-sm leading-relaxed">
                     "{copilotSuggestion}"
@@ -1225,7 +1837,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                         }
                       }}
                       className="absolute right-1 bottom-1 size-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Copy suggested response"
+                      title="Copy suggestion"
                     >
                       <Send className="size-3 text-muted-foreground" />
                     </Button>
@@ -1252,7 +1864,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   </div>
                 )}
 
-                {/* Real-time Voice Coach Indicators */}
+                {/* Real-time speech trackers */}
                 <div className="border-t pt-3 grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-500">
                   <div className="bg-muted/40 p-2 rounded border">
                     <span className="text-[9px] uppercase text-muted-foreground">Speaking Pace</span>
@@ -1276,13 +1888,6 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                     </ul>
                   </div>
                 )}
-
-                {copilotNextAction && (
-                  <div className="border-t pt-3 flex items-center justify-between text-[11px]">
-                    <span className="font-semibold text-muted-foreground">Next Step:</span>
-                    <span className="text-indigo-600 font-bold uppercase tracking-wide">{copilotNextAction}</span>
-                  </div>
-                )}
               </div>
             </Card>
           )}
@@ -1291,7 +1896,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           {activeClinic && callState === "connected" && (
             <Card className="p-3">
               <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                <BookOpen className="size-3.5" /> Quick Objection Cheat Sheet
+                <BookOpen className="size-3.5" /> Objection Cheat Sheet
               </h4>
               <div className="space-y-1.5 mt-2 max-h-[140px] overflow-y-auto nv-scroll text-xs">
                 {OBJECTION_LIBRARY.map((obj) => {
@@ -1358,43 +1963,46 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             </Card>
           )}
 
-          {/* POST-CALL SUMMARY CARD */}
+          {/* POST-CALL SUMMARY CARD / SCORECARD */}
           {postCallSummary && (
             <Card className="p-4 border-indigo-100 bg-indigo-50/20 flex flex-col gap-3 animate-in fade-in-20 duration-200">
               <div className="flex items-center justify-between border-b pb-2">
                 <div className="flex items-center gap-1.5">
                   <Sparkles className="size-4 text-indigo-600" />
-                  <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wide">Post-Call AI Summary</h4>
+                  <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wide">
+                    {isPracticeMode ? "AI Practice Scorecard" : "Post-Call AI Summary"}
+                  </h4>
                 </div>
                 {callQualityScore > 0 && (
-                  <Badge className="bg-indigo-600 text-white text-[9px]">
-                    Quality: {callQualityScore}/100
+                  <Badge className="bg-indigo-600 text-white text-[9px] tracking-wider font-mono">
+                    Score: {callQualityScore}/100
                   </Badge>
                 )}
               </div>
 
-              {/* Human-Led metrics summaries */}
-              {speakingListeningRatio !== "50:50" && (
-                <div className="bg-white border rounded p-2 text-[10px] space-y-1">
-                  <div className="flex items-center justify-between text-slate-500 font-semibold">
-                    <span>Talk Ratio: {speakingListeningRatio}</span>
-                    <span>Pacing: Normal</span>
+              {/* Simulated Metrics Card */}
+              {isPracticeMode && (
+                <div className="bg-white border rounded p-2.5 text-[10px] space-y-2">
+                  <div className="flex justify-between font-semibold text-slate-500 border-b pb-1 border-dotted">
+                    <span>Interruption Count: {practiceInterruptionCount}</span>
+                    <span>Ratio: {speakingListeningRatio}</span>
                   </div>
                   {aiCoachingFeedback && (
-                    <p className="text-indigo-900 leading-normal italic mt-1 font-medium">
+                    <div className="text-indigo-950 font-medium leading-relaxed italic">
+                      <Sparkle className="size-3 text-indigo-600 inline mr-1" />
                       "{aiCoachingFeedback}"
-                    </p>
+                    </div>
                   )}
                 </div>
               )}
 
               <div className="space-y-2 text-xs text-slate-700 overflow-y-auto max-h-[220px] nv-scroll pr-1">
                 <div>
-                  <span className="font-bold text-indigo-900">What Happened:</span>
+                  <span className="font-bold text-indigo-900">Summary Context:</span>
                   <p className="mt-0.5 leading-relaxed">{postCallSummary.whatHappened}</p>
                 </div>
                 <div>
-                  <span className="font-bold text-indigo-900">Objections Handled:</span>
+                  <span className="font-bold text-indigo-900">Objections:</span>
                   <p className="mt-0.5 leading-relaxed">{postCallSummary.objections}</p>
                 </div>
                 <div>
@@ -1402,14 +2010,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   <p className="mt-0.5 leading-relaxed">{postCallSummary.commitments}</p>
                 </div>
                 <div>
-                  <span className="font-bold text-indigo-900">Clinic Sentiment:</span>
+                  <span className="font-bold text-indigo-900">Sentiment:</span>
                   <p className="mt-0.5 leading-relaxed">{postCallSummary.sentiment}</p>
-                </div>
-                <div>
-                  <span className="font-bold text-indigo-900">Draft Follow-Up Email:</span>
-                  <div className="bg-card border p-2 rounded text-[11px] font-mono whitespace-pre-line mt-1 relative group text-slate-600 select-all leading-normal">
-                    {postCallSummary.followUpMessage}
-                  </div>
                 </div>
               </div>
             </Card>
@@ -1514,10 +2116,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               {/* Custom log notes */}
               <div className="space-y-1">
                 <label className="text-[10px] text-muted-foreground uppercase font-bold tracking-wide block">
-                  Operator Call Notes
+                  Call Notes / Rehearsal feedback
                 </label>
                 <Textarea
-                  placeholder="Record call summaries, receptionist names, specific clinic requests..."
+                  placeholder="Record summaries, feedback, key arguments, objections discussed..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="min-h-[75px] text-xs resize-none"
@@ -1530,7 +2132,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 disabled={callState !== "idle" && callState !== "ended"}
                 className="w-full h-10 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shrink-0"
               >
-                Save Outcome & Sync Log
+                {isPracticeMode ? "Save Practice Scorecard" : "Save Live Outcome"}
               </Button>
             </Card>
           )}
@@ -1538,10 +2140,4 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       </div>
     </div>
   );
-}
-
-function formatDuration(s: number): string {
-  const mins = Math.floor(s / 60);
-  const secs = s % 60;
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }

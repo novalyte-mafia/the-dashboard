@@ -269,6 +269,7 @@ model CallSession {
   adminId                     String?
   provider                    String   @default("vapi")
   providerCallId              String?
+  callEnvironment             String   @default("live") // live | practice
   status                      String   @default("initiated") // initiated | configuring | connecting | ringing | connected | reconnecting | ended | failed | provider_unavailable | microphone_denied | transcription_unavailable | ai_unavailable | saving | saved | save_failed
   failureCode                 String?
   failureMessage              String?

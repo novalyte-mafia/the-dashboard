@@ -83,66 +83,69 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     },
   });
 
-  // Update clinic state
-  const updateData: Record<string, unknown> = {
-    lastContactedAt: new Date(),
-    callAttempts: attemptNumber,
-    nextAction: (body.nextAction as string) ?? clinic.nextAction,
-    nextActionAt: body.nextActionAt ? new Date(body.nextActionAt as string) : clinic.nextActionAt,
-    updatedById: admin.id,
-  };
-  if (doNotCall) { updateData.doNotCall = true; updateData.pipelineStage = "do_not_call"; }
-  if (outcome === "interested" || outcome === "meeting_booked") updateData.interested = true;
-  if (outcome === "meeting_booked") updateData.pipelineStage = "meeting_booked";
-  if (decisionMakerReached && (clinic.pipelineStage === "connected" || clinic.pipelineStage === "attempted")) {
-    updateData.pipelineStage = "decision_maker_reached";
-  } else if (answered && clinic.pipelineStage === "ready_to_call") {
-    updateData.pipelineStage = "connected";
-  } else if (!answered && clinic.pipelineStage === "ready_to_call") {
-    updateData.pipelineStage = "attempted";
-  }
+  // Update clinic state if not a practice session
+  const isPractice = body.callEnvironment === "practice";
+  if (!isPractice) {
+    const updateData: Record<string, unknown> = {
+      lastContactedAt: new Date(),
+      callAttempts: attemptNumber,
+      nextAction: (body.nextAction as string) ?? clinic.nextAction,
+      nextActionAt: body.nextActionAt ? new Date(body.nextActionAt as string) : clinic.nextActionAt,
+      updatedById: admin.id,
+    };
+    if (doNotCall) { updateData.doNotCall = true; updateData.pipelineStage = "do_not_call"; }
+    if (outcome === "interested" || outcome === "meeting_booked") updateData.interested = true;
+    if (outcome === "meeting_booked") updateData.pipelineStage = "meeting_booked";
+    if (decisionMakerReached && (clinic.pipelineStage === "connected" || clinic.pipelineStage === "attempted")) {
+      updateData.pipelineStage = "decision_maker_reached";
+    } else if (answered && clinic.pipelineStage === "ready_to_call") {
+      updateData.pipelineStage = "connected";
+    } else if (!answered && clinic.pipelineStage === "ready_to_call") {
+      updateData.pipelineStage = "attempted";
+    }
 
-  await db.clinic.update({ where: { id }, data: updateData });
+    await db.clinic.update({ where: { id }, data: updateData });
 
-  // Pipeline history if stage changed
-  if (updateData.pipelineStage && updateData.pipelineStage !== clinic.pipelineStage) {
-    await db.clinicPipelineHistory.create({
-      data: {
-        clinicId: id,
-        fromStage: clinic.pipelineStage,
-        toStage: updateData.pipelineStage as string,
-        changedById: admin.id,
-        notes: `Call logged (${outcome}); call ${call.id}`,
-      },
+    // Pipeline history if stage changed
+    if (updateData.pipelineStage && updateData.pipelineStage !== clinic.pipelineStage) {
+      await db.clinicPipelineHistory.create({
+        data: {
+          clinicId: id,
+          fromStage: clinic.pipelineStage,
+          toStage: updateData.pipelineStage as string,
+          changedById: admin.id,
+          notes: `Call logged (${outcome}); call ${call.id}`,
+        },
+      });
+    }
+
+    // Create follow-up if required
+    if (followUpRequired && body.nextAction) {
+      await db.followUpTask.create({
+        data: {
+          title: body.nextAction as string,
+          clinicId: id,
+          contactId: (body.contactId as string) ?? null,
+          taskType: (body.followUpType as string) ?? "phone_call",
+          priority: decisionMakerReached ? "high" : "normal",
+          dueDate: body.nextActionAt ? new Date(body.nextActionAt as string) : new Date(Date.now() + 86400000),
+          status: "open",
+          description: `${(body.notes as string) ?? ""}\nCreated from call ${call.id}`.trim(),
+          assignedAdminId: admin.id,
+        },
+      });
+    }
+
+    await recalcReadiness(id);
+    await logActivity({
+      entityType: "clinic",
+      entityId: id,
+      action: "call_logged",
+      summary: `Call logged — ${outcome.replace(/_/g, " ")}${decisionMakerReached ? " (DM reached)" : ""}`,
+      adminId: admin.id,
+      metadata: { outcome, attemptNumber, interestLevel, callId: call.id },
     });
   }
-
-  // Create follow-up if required
-  if (followUpRequired && body.nextAction) {
-    await db.followUpTask.create({
-      data: {
-        title: body.nextAction as string,
-        clinicId: id,
-        contactId: (body.contactId as string) ?? null,
-        taskType: (body.followUpType as string) ?? "phone_call",
-        priority: decisionMakerReached ? "high" : "normal",
-        dueDate: body.nextActionAt ? new Date(body.nextActionAt as string) : new Date(Date.now() + 86400000),
-        status: "open",
-        description: `${(body.notes as string) ?? ""}\nCreated from call ${call.id}`.trim(),
-        assignedAdminId: admin.id,
-      },
-    });
-  }
-
-  await recalcReadiness(id);
-  await logActivity({
-    entityType: "clinic",
-    entityId: id,
-    action: "call_logged",
-    summary: `Call logged — ${outcome.replace(/_/g, " ")}${decisionMakerReached ? " (DM reached)" : ""}`,
-    adminId: admin.id,
-    metadata: { outcome, attemptNumber, interestLevel, callId: call.id },
-  });
 
   return NextResponse.json({ call });
 }
