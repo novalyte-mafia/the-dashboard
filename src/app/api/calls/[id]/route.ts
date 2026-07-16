@@ -16,7 +16,7 @@ const schema = z.object({
 });
 
 const ALLOWED_STATUSES = new Set([
-  "initiated", "configuring", "connecting", "ringing", "connected", "reconnecting",
+  "initiated", "configuring", "connecting", "dialing", "ringing", "connected", "on_hold", "reconnecting",
   "ended", "failed", "provider_unavailable", "microphone_denied", "transcription_unavailable",
   "ai_unavailable", "saving", "saved", "save_failed",
 ]);

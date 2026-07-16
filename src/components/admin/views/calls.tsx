@@ -170,13 +170,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     ])
       .then(([clinicsPayload, historyPayload]) => {
         // Queue consists of clinics in outreach-related stages
-        const filteredQueue = clinicsPayload.clinics.filter((c) =>
+        const clinicsList = clinicsPayload?.clinics || [];
+        const filteredQueue = clinicsList.filter((c) =>
           ["ready_to_call", "attempted", "connected", "follow_up_required"].includes(c.pipelineStage) &&
           !c.doNotCall &&
           !c.archived
         );
         setClinics(filteredQueue);
-        setCallHistory(historyPayload.calls || []);
+        setCallHistory(historyPayload?.calls || []);
 
         if (filteredQueue.length > 0 && !activeClinicId) {
           setActiveClinicId(filteredQueue[0].id);
@@ -539,19 +540,20 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
   // Analytics helper metrics
   const analyticsMetrics = useMemo(() => {
-    const total = callHistory.length;
+    const historyList = callHistory || [];
+    const total = historyList.length;
     if (total === 0) return { count: 0, answerRate: 0, convRate: 0, permRate: 0, avgDuration: "0:00" };
 
-    const answered = callHistory.filter((c) => c.answered).length;
+    const answered = historyList.filter((c) => c.answered).length;
     const answeredPercentage = Math.round((answered / total) * 100);
 
-    const conversations = callHistory.filter((c) => c.decisionMakerReached).length;
+    const conversations = historyList.filter((c) => c.decisionMakerReached).length;
     const conversationPercentage = Math.round((conversations / total) * 100);
 
-    const permissionGranted = callHistory.filter((c) => c.outcome === "interested" || c.outcome === "meeting_booked" || c.outcome === "information_requested").length;
+    const permissionGranted = historyList.filter((c) => c.outcome === "interested" || c.outcome === "meeting_booked" || c.outcome === "information_requested").length;
     const permissionPercentage = Math.round((permissionGranted / Math.max(conversations, 1)) * 100);
 
-    const totalDuration = callHistory.reduce((acc, c) => acc + c.durationSec, 0);
+    const totalDuration = historyList.reduce((acc, c) => acc + c.durationSec, 0);
     const avgDuration = Math.round(totalDuration / total);
 
     return {
@@ -564,7 +566,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   }, [callHistory]);
 
   const filteredQueue = useMemo(() => {
-    return clinics.filter((c) =>
+    const clinicsList = clinics || [];
+    return clinicsList.filter((c) =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (c.city || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       (c.state || "").toLowerCase().includes(searchQuery.toLowerCase())
@@ -842,7 +845,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               </div>
 
               {/* DECISION MAKER CONTACTS */}
-              {activeClinic.contacts.length > 0 && (
+              {activeClinic.contacts && activeClinic.contacts.length > 0 && (
                 <div className="bg-muted/30 border rounded-lg p-2 text-xs">
                   <span className="font-semibold text-muted-foreground">Key Contacts & Decision Makers:</span>
                   <div className="space-y-1.5 mt-1.5">
