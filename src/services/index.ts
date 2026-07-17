@@ -298,7 +298,7 @@ export const settingsService = {
 export const notificationService = {
   list(): Promise<{ notifications: NotificationItem[] }> {
     if (appConfig.mockMode) return mockAsync({ notifications: mocks.mockNotifications });
-    return fetch("/api/notifications").then((r) => r.json()).then((d) => d.notifications);
+    return fetch("/api/notifications").then((r) => r.json());
   },
 };
 
@@ -313,7 +313,7 @@ export const activityService = {
       return mockAsync({ activities });
     }
     const qs = entityType ? `?entityType=${entityType}` : "";
-    return fetch(`/api/activity${qs}`).then((r) => r.json()).then((d) => d.activities);
+    return fetch(`/api/activity${qs}`).then((r) => r.json());
   },
 };
 
