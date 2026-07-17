@@ -73,6 +73,7 @@ import {
   inferConsentRequirement,
   type ConsentStatus,
 } from "@/lib/calls/recording-consent";
+import { suggestFromTranscriptContext, extractClinicFacts } from "@/lib/calls/transcript-context";
 
 // ---------------------------------------------------------------------------
 // PRACTICE PERSONAS
@@ -116,38 +117,12 @@ interface ScenarioConfig {
   }[];
 }
 
-function manualFieldGuideResponse(clinicReply: string) {
-  const reply = clinicReply.toLowerCase();
-  if (reply.includes("sales") || reply.includes("did not request") || reply.includes("didn't request") || reply.includes("not interested")) {
-    return "That’s fair. This is not a paid sales call—the basic verified listing is free. I only need to confirm your public details and your permission to publish them.";
-  }
-  if (reply.includes("email") || reply.includes("send me")) {
-    return "Absolutely. Before I send it, may I confirm the best email and the name of the person who manages your clinic listing?";
-  }
-  if (
-    reply.includes("free") ||
-    reply.includes("fee") ||
-    reply.includes("fees") ||
-    reply.includes("cost") ||
-    reply.includes("price") ||
-    reply.includes("charge")
-  ) {
-    return "Yes—our verified directory listing is completely free. I just need your permission to include your clinic profile (and booking link, if you’d like).";
-  }
-  // Why are you calling?
-  if ((reply.includes("why") || reply.includes("reason")) && (reply.includes("calling") || reply.includes("called"))) {
-    return "Of course. We’re calling to verify your clinic’s public details for our directory—it's a free, permission-based listing. May I confirm a couple items to publish your verified profile?";
-  }
-  if (reply.includes("busy") || reply.includes("bad time") || reply.includes("call back")) {
-    return "Of course. What day and time would be best for a two-minute verification call?";
-  }
-  if (reply.includes("manager") || reply.includes("owner") || reply.includes("doctor")) {
-    return "Thank you. May I speak with that person briefly, or confirm their name and the best time to reach them?";
-  }
-  if (reply.includes("already") && (reply.includes("enough") || reply.includes("full"))) {
-    return "That’s completely fine. Even if you’re currently booked, our directory helps the right patients find the right providers. May I confirm permission to include your verified profile?";
-  }
-  return "Thank you. To make sure we list the clinic accurately, may I confirm your public phone number, services, and whether you are accepting new patients?";
+function manualFieldGuideResponse(transcriptOrReply: string, previous: string[] = []) {
+  return suggestFromTranscriptContext({
+    transcript: transcriptOrReply,
+    latestClinicUtterance: transcriptOrReply.split("\n").filter(Boolean).at(-1),
+    previousSuggestions: previous,
+  }).suggestion;
 }
 
 // ---------------------------------------------------------------------------
@@ -1402,7 +1377,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               prior &&
               prior.speaker === speaker &&
               Number.isFinite(priorTimeMs) &&
-              nowMs - priorTimeMs <= 1500;
+              nowMs - priorTimeMs <= 2800;
 
             const nextNonCoach = [...prevNonCoach];
             if (shouldMerge && prior) {
@@ -1419,12 +1394,16 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             // Only clinic turns should drive copilot suggestions.
             if (speaker === "Clinic") {
               const lastText = nextNonCoach.at(-1)?.text ?? "";
+              const isDigitFragment = /^[\d\s.,-]{1,16}$/.test(lastText.trim());
               const looksComplete =
-                /[?!.]\s*$/.test(lastText) || lastText.length >= 25 || /\b(free|fee|fees|cost|price|charge)\b/i.test(lastText);
+                !isDigitFragment &&
+                (/[?!.]\s*$/.test(lastText) ||
+                  lastText.length >= 20 ||
+                  /\b(free|fee|fees|cost|price|charge|yes|accept|patients|services|number)\b/i.test(lastText));
 
               // Keep one active suggestion card at the end; update it after the clinic finishes (debounced).
               const nextWithCoach = upsertInlineCoachSuggestion(nextNonCoach, COACH_LISTENING_TEXT);
-              if (looksComplete) queueCopilotRequest(nextWithCoach);
+              if (looksComplete || isDigitFragment) queueCopilotRequest(nextWithCoach);
               return nextWithCoach;
             }
 
@@ -1524,11 +1503,18 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   function queueCopilotRequest(conversation: TranscriptLine[]) {
     pendingCopilotConversationRef.current = conversation;
     if (copilotDebounceTimerRef.current) clearTimeout(copilotDebounceTimerRef.current);
+
+    const spoken = utteranceTranscript(conversation);
+    const lastClinic = spoken.filter((l) => l.speaker === "Clinic").at(-1)?.text ?? "";
+    // Digit / fragment turns need longer wait so phone numbers can merge before we coach.
+    const looksLikeFragment = /^[\d\s.,-]{1,12}$/.test(lastClinic.trim()) || lastClinic.trim().split(/\s+/).length <= 3;
+    const delay = looksLikeFragment ? 2200 : 1100;
+
     copilotDebounceTimerRef.current = setTimeout(() => {
       const convo = pendingCopilotConversationRef.current;
       if (!convo) return;
       void requestManualCopilot(convo);
-    }, 900);
+    }, delay);
   }
 
   const requestManualCopilot = async (conversation: TranscriptLine[]) => {
@@ -1544,8 +1530,30 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
     try {
       const spokenOnly = utteranceTranscript(conversation);
-      const lastClinicText = spokenOnly.filter((l) => l.speaker === "Clinic").at(-1)?.text ?? "";
-      const transcriptNotes = spokenOnly.slice(-14).map((line) => `${line.speaker}: ${line.text}`).join("\n");
+      const clinicTurns = spokenOnly.filter((l) => l.speaker === "Clinic");
+      // Merge recent clinic fragments into one utterance for context (phone digits, etc.)
+      const recentClinicBundle = clinicTurns.slice(-5).map((l) => l.text).join(" ").replace(/\s+/g, " ").trim();
+      const lastClinicText = clinicTurns.at(-1)?.text ?? "";
+      const transcriptNotes = spokenOnly.slice(-16).map((line) => `${line.speaker}: ${line.text}`).join("\n");
+
+      // Auto-mark checklist from what the clinic already said
+      const facts = extractClinicFacts(transcriptNotes);
+      setQualification((prev) => {
+        const next = { ...prev };
+        if (facts.phone) next.q3 = true;
+        if (facts.services) next.q5 = true;
+        if (facts.acceptingNewPatients !== undefined) next.q7 = true;
+        if (facts.permissionGranted) next.q1 = true;
+        return next;
+      });
+
+      const qualNow = {
+        ...qualification,
+        ...(facts.phone ? { q3: true } : {}),
+        ...(facts.services ? { q5: true } : {}),
+        ...(facts.acceptingNewPatients !== undefined ? { q7: true } : {}),
+        ...(facts.permissionGranted ? { q1: true } : {}),
+      };
 
       const response = await fetch("/api/copilot/suggest", {
         method: "POST",
@@ -1556,11 +1564,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           clinicContext: `${activeClinic.city ?? ""}, ${activeClinic.state ?? ""}. Services: ${(activeClinic.services ?? []).join(", ")}`,
           stage: activeStage,
           transcript: transcriptNotes,
-          question: lastClinicText,
-          qualificationSummary: QUALIFICATION_CHECKLIST.map((q) => `${q.id}:${qualification[q.id] ? "YES" : "NO"}`).join(", "),
-          missingQualification: QUALIFICATION_CHECKLIST.filter((q) => !qualification[q.id]).map((q) => q.label).join("; "),
+          question: recentClinicBundle || lastClinicText,
+          qualificationSummary: QUALIFICATION_CHECKLIST.map((q) => `${q.id}:${qualNow[q.id] ? "YES" : "NO"}`).join(", "),
+          missingQualification: QUALIFICATION_CHECKLIST.filter((q) => !qualNow[q.id]).map((q) => q.label).join("; "),
           detectedObjections: expandedObjection ? expandedObjection : objectionGuidance ?? "",
-          // With one active inline coach card, we still want recent suggestions to discourage repetition.
           previousSuggestions: copilotSuggestionHistoryRef.current.slice(-3).join("\n"),
         }),
       });
@@ -1589,8 +1596,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     } catch (error) {
       if (requestId !== copilotRequestSeqRef.current) return;
 
-      const latestClinicReply = utteranceTranscript(conversation).at(-1)?.text ?? "";
-      const fallback = manualFieldGuideResponse(latestClinicReply);
+      const spokenOnly = utteranceTranscript(conversation);
+      const transcriptNotes = spokenOnly.slice(-16).map((line) => `${line.speaker}: ${line.text}`).join("\n");
+      const fallback = manualFieldGuideResponse(transcriptNotes, copilotSuggestionHistoryRef.current);
       setCopilotSuggestion(fallback);
       setCopilotSource("field_guide");
       copilotSuggestionHistoryRef.current = [...copilotSuggestionHistoryRef.current.slice(-3), fallback];

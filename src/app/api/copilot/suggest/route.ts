@@ -5,6 +5,7 @@ import { generateKnowledgeAwareCopilot } from "@/lib/knowledge/copilot-generate"
 import { buildFieldGuideStructuredResponse } from "@/lib/knowledge/guardrails";
 import { formatKnowledgeForPrompt, retrieveKnowledge } from "@/lib/knowledge/retrieval";
 import { generateFieldGuideSuggestion } from "@/lib/providers/glm-field-guide";
+import { extractClinicFacts } from "@/lib/calls/transcript-context";
 
 const schema = z.object({
   clinicName: z.string().min(1).max(200),
@@ -45,12 +46,17 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch {
-    const fallbackText = generateFieldGuideSuggestion(query || parsed.data.transcript);
+    const fallbackText = generateFieldGuideSuggestion(
+      parsed.data.transcript || query,
+      (parsed.data.previousSuggestions ?? "").split("\n").filter(Boolean),
+    );
     const structured = buildFieldGuideStructuredResponse(fallbackText, retrieval.chunks, parsed.data.stage);
+    const facts = extractClinicFacts(parsed.data.transcript || query);
     return NextResponse.json({
       suggestion: structured.suggested_response,
       source: "field_guide",
       structured,
+      facts,
       retrieval: {
         categories: retrieval.categories,
         latencyMs: retrieval.latencyMs,

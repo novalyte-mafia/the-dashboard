@@ -9,6 +9,7 @@ import {
 } from "@/lib/knowledge/guardrails";
 import { generateFieldGuideSuggestion } from "@/lib/providers/glm-field-guide";
 import { DIRECTORY_ONLY_COPILOT_RULES, sanitizeDirectoryOnlySuggestion, containsProhibitedCommercialLanguage } from "@/lib/calls/directory-only-guard";
+import { extractClinicFacts, suggestFromTranscriptContext } from "@/lib/calls/transcript-context";
 
 const GLM_URL = process.env.GLM_API_URL?.trim() || "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 
@@ -46,26 +47,46 @@ export async function generateKnowledgeAwareCopilot(input: {
   const apiKey = process.env.GLM_API_KEY?.trim();
   if (!apiKey) throw new Error("GLM_API_KEY is not configured.");
 
-  const systemPrompt = `You are the Novalyte AI live call strategist. Coach the human operator (Jamil) only — Jamil speaks to the clinic; you never speak as the clinic.
+  const facts = extractClinicFacts(input.transcript);
+  const contextHint = suggestFromTranscriptContext({
+    transcript: input.transcript,
+    latestClinicUtterance: input.question,
+    previousSuggestions: (input.previousSuggestions ?? "").split("\n").filter(Boolean),
+  });
+
+  const systemPrompt = `You are a silent live-call coach for Jamil (founder of Novalyte AI). Suggest the NEXT sentence he should say out loud.
 ${DIRECTORY_ONLY_COPILOT_RULES}
-Additional rules:
-- Company name is always "Novalyte AI" (never Novolite, NovoLight, etc.)
-- Answer the clinic's latest direct question BEFORE asking the next qualification question
-- Use ONLY the APPROVED BUSINESS KNOWLEDGE below — do not invent facts, stats, guarantees, HIPAA certs, or partnerships
-- Keep suggested_response to ONE natural spoken sentence (max ~35 words)
-- Never repeat previousSuggestions verbatim
-- Return ONLY valid JSON with keys: suggested_response, response_type, call_stage, reason, knowledge_sources (array of {title, source, section}), suggested_next_action, confidence (0-1), grounding_status`;
+
+CRITICAL BEHAVIOR:
+1. Read the full transcript. If the clinic already answered something, ACKNOWLEDGE it — never re-ask.
+2. Respond to the clinic's LATEST line first (answer / thank / confirm), then ask at most ONE missing item.
+3. Sound like a real person on a phone — short, plain, conversational. No brochure language. No "To make sure we list the clinic accurately…"
+4. Prefer contractions: "you're", "we're", "that's", "got it", "perfect", "yep".
+5. Max ~28 spoken words. One sentence only.
+6. Company name is always "Novalyte AI".
+7. Never invent stats, guarantees, HIPAA certs, partnerships, or paid offers.
+8. Never repeat previousSuggestions.
+9. If FACTS ALREADY COLLECTED lists phone/services/accepting patients, do NOT ask for those again.
+
+Return ONLY valid JSON:
+suggested_response, response_type, call_stage, reason, knowledge_sources ([{title,source,section}]), suggested_next_action, confidence (0-1), grounding_status`;
 
   const userPrompt =
     `Clinic: ${sanitize(input.clinicName, 200)}\n` +
     `Clinic context: ${sanitize(input.clinicContext, 1200)}\n` +
     `Call stage: ${sanitize(input.stage ?? "purpose", 100)}\n` +
-    `Qualification: ${sanitize(input.qualificationSummary ?? "", 600)}\n` +
-    `Missing checklist: ${sanitize(input.missingQualification ?? "", 600)}\n` +
+    `FACTS ALREADY COLLECTED FROM TRANSCRIPT:\n` +
+    `- phone: ${facts.phone ?? "unknown"}\n` +
+    `- services: ${facts.services ?? "unknown"}\n` +
+    `- accepting new patients: ${facts.acceptingNewPatients === undefined ? "unknown" : facts.acceptingNewPatients ? "yes" : "no"}\n` +
+    `- permission: ${facts.permissionGranted ? "granted" : facts.permissionDeclined ? "declined" : "unknown"}\n` +
+    `Checklist status: ${sanitize(input.qualificationSummary ?? "", 600)}\n` +
+    `Still missing: ${sanitize(input.missingQualification ?? "", 600)}\n` +
     `Objections: ${sanitize(input.detectedObjections ?? "", 400)}\n` +
     `Previous suggestions (do not repeat): ${sanitize(input.previousSuggestions ?? "", 1200)}\n` +
+    `Safe next-line hint (prefer adapting this): ${sanitize(contextHint.suggestion, 300)}\n` +
     `Recent transcript:\n${sanitize(input.transcript, 3000)}\n` +
-    `Clinic's latest question/objection: ${sanitize(input.question ?? "", 500)}\n\n` +
+    `Clinic's latest utterance: ${sanitize(input.question ?? "", 500)}\n\n` +
     `APPROVED BUSINESS KNOWLEDGE:\n${sanitize(input.businessKnowledge, 4000)}`;
 
   const response = await fetch(GLM_URL, {
@@ -91,7 +112,12 @@ Additional rules:
   const parsed = parseStructuredResponse(raw);
 
   if (!parsed?.suggested_response) {
-    const fallbackText = sanitizeCompanyName(generateFieldGuideSuggestion(input.question ?? input.transcript));
+    const fallbackText = sanitizeCompanyName(
+      generateFieldGuideSuggestion(
+        input.transcript || input.question || "",
+        (input.previousSuggestions ?? "").split("\n").filter(Boolean),
+      ),
+    );
     return buildFieldGuideStructuredResponse(fallbackText, input.knowledgeChunks, input.stage);
   }
 
@@ -99,6 +125,15 @@ Additional rules:
   if (containsProhibitedCommercialLanguage(suggested)) {
     suggested = sanitizeDirectoryOnlySuggestion(suggested);
   }
+
+  // Block re-asking facts the clinic already gave
+  const reaskPhone = /\b(phone|number)\b/i.test(suggested) && Boolean(facts.phone);
+  const reaskServices = /\bservices?\b/i.test(suggested) && Boolean(facts.services);
+  const reaskAccepting = /\baccepting new patients\b/i.test(suggested) && facts.acceptingNewPatients !== undefined;
+  if (reaskPhone || reaskServices || reaskAccepting) {
+    suggested = sanitizeCompanyName(contextHint.suggestion);
+  }
+
   const validation = validateSuggestionAgainstKnowledge(suggested, input.knowledgeChunks);
   if (!validation.ok || !suggested) {
     return buildLowConfidenceResponse(input.knowledgeChunks);
