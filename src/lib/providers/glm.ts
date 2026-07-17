@@ -9,6 +9,23 @@ function sanitize(value: string, max = 5000) {
     .replace(/(?:\+?1[ .-]?)?(?:\(\d{3}\)|\d{3})[ .-]?\d{3}[ .-]?\d{4}/g, "[redacted phone]");
 }
 
+export function generateFieldGuideSuggestion(transcript: string) {
+  const reply = transcript.toLowerCase();
+  if (reply.includes("sales") || reply.includes("did not request") || reply.includes("didn't request") || reply.includes("not interested")) {
+    return "That’s fair. This is not a paid sales call—the basic verified listing is free. I only need to confirm your public details and your permission to publish them.";
+  }
+  if (reply.includes("email") || reply.includes("send me")) {
+    return "Absolutely. Before I send it, may I confirm the best email and the name of the person who manages your clinic listing?";
+  }
+  if (reply.includes("cost") || reply.includes("price") || reply.includes("charge")) {
+    return "The basic verified listing is free. There is no charge to confirm your clinic information or publish the profile.";
+  }
+  if (reply.includes("busy") || reply.includes("bad time") || reply.includes("call back")) {
+    return "Of course. What day and time would be best for a two-minute verification call?";
+  }
+  return "Thank you. To make sure we list the clinic accurately, may I confirm your public phone number, services, and whether you are accepting new patients?";
+}
+
 export async function generateCopilotSuggestion(input: { clinicName: string; clinicContext: string; transcript: string; question?: string }) {
   const apiKey = process.env.GLM_API_KEY?.trim();
   if (!apiKey) throw new Error("GLM_API_KEY is not configured.");

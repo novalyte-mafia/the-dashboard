@@ -15,7 +15,7 @@ export interface DialogueTurn {
   timeSec: number;
   speaker: "you" | "clinic";
   text: string;
-  stage: "intro" | "permission" | "directory" | "qualification" | "objections" | "interest" | "scheduling" | "closing";
+  stage: "intro" | "permission" | "directory" | "qualification" | "agreement" | "objections" | "interest" | "scheduling" | "closing";
   checklistChecked?: string[]; // IDs of checklist items verified in this turn
   copilot?: {
     suggestion: string;

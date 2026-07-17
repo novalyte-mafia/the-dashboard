@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSessionAdmin } from "@/lib/auth";
-import { generateCopilotSuggestion } from "@/lib/providers/glm";
+import { generateCopilotSuggestion, generateFieldGuideSuggestion } from "@/lib/providers/glm";
 
 const schema = z.object({
   clinicName: z.string().min(1).max(200),
@@ -12,10 +12,12 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   if (!(await getSessionAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const parsed = schema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return NextResponse.json({ error: "Invalid coaching request." }, { status: 400 });
   try {
-    const suggestion = await generateCopilotSuggestion(schema.parse(await req.json()));
-    return NextResponse.json({ suggestion });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Copilot request failed." }, { status: 502 });
+    const suggestion = await generateCopilotSuggestion(parsed.data);
+    return NextResponse.json({ suggestion, source: "ai" });
+  } catch {
+    return NextResponse.json({ suggestion: generateFieldGuideSuggestion(parsed.data.transcript), source: "field_guide" });
   }
 }

@@ -12,7 +12,7 @@ import {
   LayoutDashboard, ListChecks, TrendingUp, Building2, PhoneCall, CalendarCheck,
   Users, Mail, FileText, DollarSign, CreditCard, BarChart3, Globe2, ShieldCheck,
   Stethoscope, MapPin, Megaphone, Briefcase, ShoppingCart, PenTool, Cpu,
-  Activity as ActivityIcon, Settings as SettingsIcon, PanelLeftClose, PanelLeft,
+  Activity as ActivityIcon, Settings as SettingsIcon,
   Menu, LogOut, ChevronDown, ChevronRight, type LucideIcon,
 } from "lucide-react";
 import { initials } from "@/lib/format";
@@ -185,10 +185,10 @@ export const NAV_GROUPS: NavGroup[] = [
 ];
 
 export function Sidebar({
-  collapsed, onToggleCollapse, currentView,
+  collapsed, onCollapsedChange, currentView,
 }: {
   collapsed: boolean;
-  onToggleCollapse: () => void;
+  onCollapsedChange: (collapsed: boolean) => void;
   currentView: ViewId;
 }) {
   const { admin, navigate } = useNav();
@@ -306,20 +306,25 @@ export function Sidebar({
 
   return (
     <>
-      <aside className={cn("hidden lg:flex shrink-0 border-r border-sidebar-border bg-sidebar transition-[width] duration-200", collapsed ? "w-[60px]" : "w-56")}>
-        <div className="flex flex-col w-full">
+      <aside
+        className={cn("hidden lg:flex shrink-0 border-r border-sidebar-border bg-sidebar transition-[width] duration-200", collapsed ? "w-[60px]" : "w-56")}
+        onMouseEnter={() => onCollapsedChange(false)}
+        onMouseLeave={() => onCollapsedChange(true)}
+        aria-label="Primary navigation"
+      >
+        <div className="flex flex-col w-full overflow-hidden">
           {content}
-          <button
-            onClick={onToggleCollapse}
-            className="flex items-center justify-center gap-2 h-8 border-t border-sidebar-border text-xs text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50 transition-colors"
-          >
-            {collapsed ? <PanelLeft className="size-4" /> : <><PanelLeftClose className="size-4" /> Collapse</>}
-          </button>
         </div>
       </aside>
 
       <div className="fixed left-1 top-[calc(4.5rem+env(safe-area-inset-top))] z-50 lg:hidden">
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <Sheet
+          open={mobileOpen}
+          onOpenChange={(open) => {
+            setMobileOpen(open);
+            onCollapsedChange(!open);
+          }}
+        >
           <SheetTrigger asChild>
             <Button variant="outline" size="icon" aria-label="Open navigation" className="size-10 bg-background/95 shadow-sm"><Menu className="size-5" /></Button>
           </SheetTrigger>

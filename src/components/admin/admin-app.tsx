@@ -221,7 +221,7 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
 export function AdminApp({ admin }: { admin: AdminUser }) {
   const [nav, setNav] = useState<NavState>({ view: "overview", clinicId: null });
   const [refreshKey, setRefreshKey] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   const navigate = useCallback((view: ViewId, clinicId: string | null = null, params?: Record<string, unknown>) => {
     setNav({ view, clinicId, params });
@@ -259,7 +259,7 @@ export function AdminApp({ admin }: { admin: AdminUser }) {
         <div className="flex flex-1 min-h-0">
           <Sidebar
             collapsed={sidebarCollapsed}
-            onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+            onCollapsedChange={setSidebarCollapsed}
             currentView={nav.view}
           />
           <div className="flex-1 flex flex-col min-w-0">

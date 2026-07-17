@@ -185,6 +185,8 @@ export interface CallSession {
   nextActionAt?: ISODate;
   followUpRequired: boolean;
   adminName?: string;
+  structuredData?: string;
+  callEnvironment?: "practice" | "live";
 }
 
 // ---------------------------------------------------------------------------
