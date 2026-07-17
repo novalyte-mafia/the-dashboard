@@ -285,7 +285,7 @@ export const automationService = {
 export const settingsService = {
   listIntegrations(): Promise<{ integrations: Integration[] }> {
     if (appConfig.mockMode) return mockAsync({ integrations: mocks.mockIntegrations });
-    return fetch("/api/settings").then((r) => r.json()).then((d) => d.integrations);
+    return fetch("/api/settings").then((r) => r.json());
   },
   listAuditEvents(): Promise<{ events: AuditEvent[] }> {
     return mockAsync({ events: mocks.mockAuditEvents });
