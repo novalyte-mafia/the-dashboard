@@ -83,7 +83,7 @@ interface PersonaConfig {
 }
 
 const PRACTICE_PERSONAS: PersonaConfig[] = [
-  { id: "receptionist", name: "Priya Shah", role: "Receptionist", voiceName: "Google US English", accent: "US Standard", trait: "Helpful but busy", description: "Wants to know why you are calling and check if this is a sales call before routing." },
+  { id: "receptionist", name: "Martha Shah", role: "Receptionist", voiceName: "Google US English", accent: "US Standard", trait: "Helpful but busy", description: "Wants to know why you are calling and check if this is a sales call before routing." },
   { id: "front_desk", name: "Tara Mills", role: "Front Desk Coordinator", voiceName: "Microsoft Zira", accent: "US West Coast", trait: "Gatekeeper", description: "Skeptical, guards the doctor's calendar, requests emails instead of calls." },
   { id: "office_manager", name: "Amani Okafor", role: "Office Manager", voiceName: "Google UK English Female", accent: "UK Received Pronunciation", trait: "Detail-oriented", description: "Asks details about directory costs, listing options, and scheduling links." },
   { id: "physician", name: "Dr. Marcus Cole", role: "Medical Director / Physician", voiceName: "Google US English Male", accent: "US Mid-Atlantic", trait: "Low patience", description: "Demands immediate explanation of value, clinical reputation, and patient volume." },
@@ -136,7 +136,7 @@ const PRACTICE_SCENARIOS: ScenarioConfig[] = [
     id: "scenario_friendly",
     name: "Friendly Clinic Listing",
     objective: "Verify contact name, confirm services (TRT & Telehealth), and secure permission to list profile.",
-    initialPrompt: "Hello, Summit Vitality, Priya speaking. How can I help you?",
+    initialPrompt: "Hello, Summit Vitality, Martha speaking. How can I help you?",
     dialogueTree: [
       {
         stage: "intro",
@@ -144,7 +144,7 @@ const PRACTICE_SCENARIOS: ScenarioConfig[] = [
         clinicSpeech: "Oh, hi Jamil. Yes, this is Summit Vitality. I am the Practice Manager. What listing is this?",
         copilotSuggestion: "It's the Novalyte Men's Health Directory. We help local patients find TRT providers. May I confirm Dr. Cole is still the Medical Director?",
         copilotQuestion: "Confirm if Dr. Marcus Cole is still the Medical Director.",
-        facts: ["Clinic Name: Summit Vitality Clinic", "Priya: Practice Manager"]
+        facts: ["Clinic Name: Summit Vitality Clinic", "Martha: Practice Manager"]
       },
       {
         stage: "directory",
@@ -172,11 +172,11 @@ const PRACTICE_SCENARIOS: ScenarioConfig[] = [
       },
       {
         stage: "closing",
-        triggerKeywords: ["email", "priya@", "thank", "bye"],
-        clinicSpeech: "You can send it to priya@summitvitality.com. Talk to you soon, Jamil. Bye!",
-        copilotSuggestion: "Thank her, confirm email is priya@summitvitality.com, and click 'Hang Up'.",
+        triggerKeywords: ["email", "martha@", "thank", "bye"],
+        clinicSpeech: "You can send it to martha@summitvitality.com. Talk to you soon, Jamil. Bye!",
+        copilotSuggestion: "Thank her, confirm email is martha@summitvitality.com, and click 'Hang Up'.",
         copilotQuestion: "Conclude call.",
-        facts: ["Email: priya@summitvitality.com"]
+        facts: ["Email: martha@summitvitality.com"]
       }
     ]
   },
@@ -212,10 +212,10 @@ const PRACTICE_SCENARIOS: ScenarioConfig[] = [
       {
         stage: "closing",
         triggerKeywords: ["book", "summitvitality", "link", "email"],
-        clinicSpeech: "Yes, you can list it. Send the verified badge link to priya@summitvitality.com so we can check it.",
-        copilotSuggestion: "Confirm the email priya@summitvitality.com and wrap up the call.",
+        clinicSpeech: "Yes, you can list it. Send the verified badge link to martha@summitvitality.com so we can check it.",
+        copilotSuggestion: "Confirm the email martha@summitvitality.com and wrap up the call.",
         copilotQuestion: "Conclude call.",
-        facts: ["Email: priya@summitvitality.com", "Booking link: summitvitality.com/book"]
+        facts: ["Email: martha@summitvitality.com", "Booking link: summitvitality.com/book"]
       }
     ]
   }
@@ -569,12 +569,12 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         });
       } else if (!isLiveMode) {
         setPostCallSummary({
-          whatHappened: "Jamil contacted Summit Vitality Clinic and spoke with Priya, the Practice Manager. Verified Dr. Marcus Cole as the Medical Director and verified their listing details.",
+          whatHappened: "Jamil contacted Summit Vitality Clinic and spoke with Martha, the Practice Manager. Verified Dr. Marcus Cole as the Medical Director and verified their listing details.",
           objections: "Initial objection raised: 'We didn't sign up for this directory'. Clarified that the directory is free, which resolved the objection.",
-          commitments: "Priya granted Jamil explicit permission to publish the clinic as verified in the Novalyte directory.",
+          commitments: "Martha granted Jamil explicit permission to publish the clinic as verified in the Novalyte directory.",
           sentiment: "Positive and receptive.",
-          nextSteps: "Email verified link to priya@summitvitality.com and follow up next month.",
-          followUpMessage: "Hi Priya, thanks for verifying Summit Vitality Clinic today! Here is your listing link: directory.novalyte.io/summit-vitality. We will check in next month. Best, Jamil.",
+          nextSteps: "Email verified link to martha@summitvitality.com and follow up next month.",
+          followUpMessage: "Hi Martha, thanks for verifying Summit Vitality Clinic today! Here is your listing link: directory.novalyte.io/summit-vitality. We will check in next month. Best, Jamil.",
         });
         setOutcome("interested");
         setInterestLevel("warm");
@@ -922,7 +922,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           clinicName: activeClinic?.name ?? "the clinic",
           clinicCity: activeClinic?.city ?? "",
           clinicState: activeClinic?.state ?? "",
-          personaName: persona?.name ?? "Priya",
+          personaName: persona?.name ?? "Martha",
           personaRole: persona?.role ?? "Receptionist",
           personaTrait: persona?.trait ?? "Helpful but busy",
           difficulty: practiceDifficulty,

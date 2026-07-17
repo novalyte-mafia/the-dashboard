@@ -71,7 +71,7 @@ const clinicSeeds: SeedClinic[] = [
     tags: ["high-value", "expansion"], source: "manual_research",
     contacts: [
       { firstName: "Marcus", lastName: "Cole", title: "Medical Director", contactType: "medical_director", email: "mcole@summitvitality.com", directPhone: "(512) 555-0143", isDecisionMaker: true, isPrimary: true },
-      { firstName: "Priya", lastName: "Shah", title: "Practice Manager", contactType: "practice_manager", email: "priya@summitvitality.com", directPhone: "(512) 555-0144" },
+      { firstName: "Martha", lastName: "Shah", title: "Practice Manager", contactType: "practice_manager", email: "martha@summitvitality.com", directPhone: "(512) 555-0144" },
     ],
   },
   {

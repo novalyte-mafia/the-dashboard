@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const vars = body.assistantOverrides?.variableValues ?? {};
   const clinicName = (vars.clinicName || "the clinic").slice(0, 120);
   const clinicLocation = [vars.clinicCity, vars.clinicState].filter(Boolean).join(", ").slice(0, 120);
-  const personaName = (vars.personaName || "Priya").slice(0, 60);
+  const personaName = (vars.personaName || "Martha").slice(0, 60);
   const personaRole = (vars.personaRole || "Receptionist").slice(0, 60);
   const personaTrait = (vars.personaTrait || "Helpful but busy").slice(0, 120);
   const difficulty = vars.difficulty === "advanced" ? "advanced" : vars.difficulty === "intermediate" ? "intermediate" : "beginner";

@@ -1,7 +1,7 @@
 /**
  * Human-Led Telephony and AI Voice Copilot Simulator
  * 
- * Simulates an outbound clinic call where you (Jamil) speak to the clinic (Priya).
+ * Simulates an outbound clinic call where you (Jamil) speak to the clinic (Martha).
  * The AI Copilot silently listens, transcribes both sides, tracks checklist items,
  * and updates suggested responses and private coaching alerts on screen.
  */
@@ -33,12 +33,12 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
   {
     timeSec: 3,
     speaker: "clinic",
-    text: "Hello, Summit Vitality Clinic, this is Priya. How can I help you?",
+    text: "Hello, Summit Vitality Clinic, this is Martha. How can I help you?",
     stage: "intro",
     copilot: {
-      suggestion: "Hello, Priya. This is Jamil with Novalyte. I wanted to verify your clinic's listing details.",
-      question: "Verify if you are speaking with the correct clinic representative (Priya).",
-      facts: ["Clinic Name: Summit Vitality Clinic", "Answered by: Priya"],
+      suggestion: "Hello, Martha. This is Jamil with Novalyte. I wanted to verify your clinic's listing details.",
+      question: "Verify if you are speaking with the correct clinic representative (Martha).",
+      facts: ["Clinic Name: Summit Vitality Clinic", "Answered by: Martha"],
       nextAction: "Introduce yourself & state purpose.",
       speakingPace: "Good (130 WPM)",
     }
@@ -46,7 +46,7 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
   {
     timeSec: 10,
     speaker: "you",
-    text: "Hello, Priya. This is Jamil with Novalyte. I hope you're having a good day. I'm calling to verify some of the listing details for Summit Vitality Clinic in our national directory.",
+    text: "Hello, Martha. This is Jamil with Novalyte. I hope you're having a good day. I'm calling to verify some of the listing details for Summit Vitality Clinic in our national directory.",
     stage: "intro",
     checklistChecked: ["q3"], // Clinic name and phone verified
   },
@@ -55,12 +55,12 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
     speaker: "clinic",
     text: "Oh, hi Jamil. Yes, this is Summit Vitality. I am the Practice Manager. What directory are you referring to? We didn't sign up for anything.",
     stage: "directory",
-    checklistChecked: ["q2"], // Contact name & role confirmed (Priya, PM)
+    checklistChecked: ["q2"], // Contact name & role confirmed (Martha, PM)
     copilot: {
       suggestion: "No worries! It's the Novalyte Men's Health Directory. We list clinics for free to help local patients find care. Can I explain how it works?",
       question: "Request permission to continue and explain the directory.",
       objectionGuidance: "Objection: 'We didn't sign up'. Response: Reassure them that listings are free and meant for patient routing, with no billing or strings attached.",
-      facts: ["Priya is the Practice Manager", "Decision-maker Marcus Cole works at this location"],
+      facts: ["Martha is the Practice Manager", "Decision-maker Marcus Cole works at this location"],
       nextAction: "Get permission to explain directory.",
       speakingPace: "Good (135 WPM)"
     }
@@ -68,7 +68,7 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
   {
     timeSec: 25,
     speaker: "you",
-    text: "No worries at all, Priya! It's the Novalyte Men's Health Directory. We list clinics for free in the Austin area so local patients looking for hormone optimization and TRT can find care. I just wanted to get your permission to explain how this works and confirm your details?",
+    text: "No worries at all, Martha! It's the Novalyte Men's Health Directory. We list clinics for free in the Austin area so local patients looking for hormone optimization and TRT can find care. I just wanted to get your permission to explain how this works and confirm your details?",
     stage: "permission",
   },
   {
@@ -87,7 +87,7 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
   {
     timeSec: 40,
     speaker: "you",
-    text: "Thank you, Priya. We match patients in Austin who are looking for specialized hormone therapy directly to providers. I have your main office address down as 1201 Congress Ave, Austin. Is that correct? And do you offer TRT and Peptide therapy at this location?",
+    text: "Thank you, Martha. We match patients in Austin who are looking for specialized hormone therapy directly to providers. I have your main office address down as 1201 Congress Ave, Austin. Is that correct? And do you offer TRT and Peptide therapy at this location?",
     stage: "qualification",
     checklistChecked: ["q4"], // Address verified
   },
@@ -118,7 +118,7 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
     stage: "qualification",
     checklistChecked: ["q6", "q7"], // Booking URL & Accepting patients confirmed
     copilot: {
-      suggestion: "Awesome, summitvitality.com/book. Priya, would it be okay if we list Summit Vitality as verified in the directory so we can start matching patients to you?",
+      suggestion: "Awesome, summitvitality.com/book. Martha, would it be okay if we list Summit Vitality as verified in the directory so we can start matching patients to you?",
       question: "Request explicit permission to list the clinic in the directory.",
       warning: "Ensure you ask for explicit directory permission before concluding the call.",
       nextAction: "Get directory permission.",
@@ -128,7 +128,7 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
   {
     timeSec: 72,
     speaker: "you",
-    text: "Perfect, summitvitality.com/book. I've updated your booking URL. Now, Priya, to send patients your way, we just need your permission to list Summit Vitality as a verified clinic in the directory. Is it okay to activate your profile?",
+    text: "Perfect, summitvitality.com/book. I've updated your booking URL. Now, Martha, to send patients your way, we just need your permission to list Summit Vitality as a verified clinic in the directory. Is it okay to activate your profile?",
     stage: "agreement",
   },
   {
@@ -157,7 +157,7 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
     stage: "interest",
     checklistChecked: ["q1"], // Permission to list granted!
     copilot: {
-      suggestion: "Thank Priya. Get her direct email to send the confirmation link, and set a brief check-in follow-up next month.",
+      suggestion: "Thank Martha. Get her direct email to send the confirmation link, and set a brief check-in follow-up next month.",
       question: "Ask for direct email to send the directory link.",
       facts: ["Permission to list GRANTED"],
       nextAction: "Get email and schedule follow-up.",
@@ -167,17 +167,17 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
   {
     timeSec: 101,
     speaker: "you",
-    text: "Awesome, Priya. Thank you! I'll publish the verified badge immediately. What is the best email to send your verified directory profile link to, so you can check how it looks?",
+    text: "Awesome, Martha. Thank you! I'll publish the verified badge immediately. What is the best email to send your verified directory profile link to, so you can check how it looks?",
     stage: "scheduling",
   },
   {
     timeSec: 107,
     speaker: "clinic",
-    text: "You can send it to priya@summitvitality.com. You can follow up with us next month to see how many patients clicked it.",
+    text: "You can send it to martha@summitvitality.com. You can follow up with us next month to see how many patients clicked it.",
     stage: "scheduling",
     checklistChecked: ["q12"], // Follow-up owner and date agreed
     copilot: {
-      suggestion: "Perfect, priya@summitvitality.com. I will send that email now and schedule a check-in for next month. Thank you so much for your help!",
+      suggestion: "Perfect, martha@summitvitality.com. I will send that email now and schedule a check-in for next month. Thank you so much for your help!",
       question: "Conclude the conversation and wish her a great day.",
       nextAction: "Conclude call.",
       speakingPace: "Good (130 WPM)"
@@ -186,7 +186,7 @@ export const SIMULATOR_DIALOGUE: DialogueTurn[] = [
   {
     timeSec: 115,
     speaker: "you",
-    text: "Excellent, priya@summitvitality.com. I will email that link over immediately and schedule our follow-up check-in for mid-August. Thank you so much for your time today, Priya. Have a wonderful day!",
+    text: "Excellent, martha@summitvitality.com. I will email that link over immediately and schedule our follow-up check-in for mid-August. Thank you so much for your time today, Martha. Have a wonderful day!",
     stage: "closing",
   },
   {
