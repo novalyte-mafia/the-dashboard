@@ -174,7 +174,7 @@ const PRACTICE_SCENARIOS: ScenarioConfig[] = [
         stage: "closing",
         triggerKeywords: ["email", "priya@", "thank", "bye"],
         clinicSpeech: "You can send it to priya@summitvitality.com. Talk to you soon, Jamil. Bye!",
-        copilotSuggestion: "Thank her, confirm email is priya@summitvitality.com, and click 'End Practice Call'.",
+        copilotSuggestion: "Thank her, confirm email is priya@summitvitality.com, and click 'Hang Up'.",
         copilotQuestion: "Conclude call.",
         facts: ["Email: priya@summitvitality.com"]
       }
@@ -368,12 +368,15 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const micStreamRef = useRef<MediaStream | null>(null);
   const telnyxClientRef = useRef<any>(null);
   const telnyxCallRef = useRef<any>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const simulatorRef = useRef<TelephonySimulator | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const callDurationRef = useRef(0);
   const startingCallRef = useRef(false);
+  const transcriptRef = useRef<{ speaker: string; text: string; timestamp: string }[]>([]);
+  const speakerEnabledRef = useRef(true);
 
   useEffect(() => {
     callDurationRef.current = callDuration;
@@ -382,6 +385,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   useEffect(() => {
     callStateRef.current = callState;
   }, [callState]);
+
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
+
+  useEffect(() => {
+    speakerEnabledRef.current = speakerEnabled;
+  }, [speakerEnabled]);
 
   useEffect(() => () => {
     if (speakerTestTimeoutRef.current) clearTimeout(speakerTestTimeoutRef.current);
@@ -751,6 +762,22 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   // ---------------------------------------------------------------------------
   // PROVIDER-GRADE PRACTICE CALL ENGINE
   // ---------------------------------------------------------------------------
+  const startScriptedPracticeFallback = async (reason: string) => {
+    toast.warning(`${reason} Switching to the scripted AI clinic voice.`);
+    setCallState("connected");
+    setSpeechRecognitionUnavailable(false);
+    const scenario = PRACTICE_SCENARIOS.find((s) => s.id === practiceScenario) || PRACTICE_SCENARIOS[0];
+    const opening = scenario.initialPrompt || scenario.dialogueTree[0]?.clinicSpeech;
+    setScenarioStepIndex(-1);
+    setCopilotSuggestion(scenario.dialogueTree[0]?.copilotSuggestion ?? "Introduce yourself and explain the free directory verification.");
+    setCopilotSource("ai");
+    if (opening) {
+      setTranscript([{ speaker: "Clinic", text: opening, timestamp: new Date().toISOString() }]);
+      void speakPracticeText(opening);
+    }
+    void startSpeechRecognition();
+  };
+
   const startPracticeCall = async () => {
     resetCallState();
     setCallState("configuring");
@@ -760,12 +787,12 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setPracticeInterruptionCount(0);
     setCopilotSuggestion(PRACTICE_SCENARIOS.find((scenario) => scenario.id === practiceScenario)?.dialogueTree[0]?.copilotSuggestion ?? "Introduce yourself and explain the free directory verification.");
     setCopilotSource("ai");
+    await createCallSession("practice");
 
     const tokenResponse = await fetch("/api/vapi/practice-token", { method: "POST" });
     const tokenData = await tokenResponse.json().catch(() => ({})) as { token?: string; error?: string };
     if (!tokenResponse.ok || !tokenData.token) {
-      setCallState("idle");
-      toast.error(tokenData.error ?? "Could not authorize the provider-grade practice call.");
+      await startScriptedPracticeFallback(tokenData.error ?? "AI clinic voice provider unavailable.");
       return;
     }
 
@@ -778,7 +805,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       setCallState("connected");
       setMicTestPassed(true);
       setSpeakerTestPassed(true);
-      toast.success("Human-voice practice call connected through Vapi.");
+      setAssistantSpeakerEnabled(speakerEnabledRef.current);
+      void persistCallSession({ status: "connected" });
+      toast.success("Simulation connected — the AI clinic is on the line. Talk normally.");
     });
     vapi.on("local-volume-level", (volume) => setMicTestLevel(Math.min(100, Math.round(volume * 100))));
     vapi.on("speech-start", () => setIsClinicSpeaking(true));
@@ -788,7 +817,12 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       const speaker = message.role === "assistant" ? "Clinic" : "Jamil";
       setTranscript((previous) => {
         const duplicate = previous.at(-1)?.speaker === speaker && previous.at(-1)?.text === message.transcript;
-        return duplicate ? previous : [...previous, { speaker, text: message.transcript, timestamp: new Date().toISOString() }];
+        if (duplicate) return previous;
+        const next = [...previous, { speaker, text: message.transcript, timestamp: new Date().toISOString() }];
+        if (speaker === "Clinic") {
+          void requestManualCopilot(next);
+        }
+        return next;
       });
     });
     vapi.on("call-end", () => {
@@ -799,12 +833,12 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       if (callStateRef.current !== "ended") setCallState("ended");
       vapiPracticeRef.current = null;
     });
-    vapi.on("error", () => {
+    vapi.on("error", async () => {
       if (practiceConnectTimeoutRef.current) clearTimeout(practiceConnectTimeoutRef.current);
       practiceConnectTimeoutRef.current = null;
-      setCallState("provider_unavailable");
-      setSpeechRecognitionUnavailable(true);
-      toast.error("Provider practice audio failed. Check microphone permission and Vapi account status.");
+      vapiPracticeRef.current = null;
+      try { await vapi.stop(); } catch { /* ignore */ }
+      await startScriptedPracticeFallback("AI clinic audio failed.");
     });
 
     let practiceConnectionTimedOut = false;
@@ -813,21 +847,29 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       practiceConnectionTimedOut = true;
       void vapi.stop();
       vapiPracticeRef.current = null;
-      setCallState("provider_unavailable");
-      setSpeechRecognitionUnavailable(true);
-      toast.error("Practice audio could not access the microphone. Allow mic access in Chrome and try again.");
+      void startScriptedPracticeFallback("Simulation connect timed out.");
     }, 18000);
 
     try {
-      const call = await vapi.start("practice");
+      const persona = PRACTICE_PERSONAS.find((p) => p.id === practicePersona);
+      const call = await vapi.start("practice", {
+        variableValues: {
+          clinicName: activeClinic?.name ?? "the clinic",
+          clinicCity: activeClinic?.city ?? "",
+          clinicState: activeClinic?.state ?? "",
+          personaName: persona?.name ?? "Priya",
+          personaRole: persona?.role ?? "Receptionist",
+          personaTrait: persona?.trait ?? "Helpful but busy",
+          difficulty: practiceDifficulty,
+        },
+      } as Parameters<typeof vapi.start>[1]);
       setProviderCallId(call?.id ?? null);
     } catch {
       if (practiceConnectTimeoutRef.current) clearTimeout(practiceConnectTimeoutRef.current);
       practiceConnectTimeoutRef.current = null;
       vapiPracticeRef.current = null;
       if (!practiceConnectionTimedOut) {
-        setCallState("idle");
-        toast.error("Could not start the provider-grade practice call.");
+        await startScriptedPracticeFallback("Could not start the AI clinic voice.");
       }
     }
   };
@@ -873,6 +915,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
   const speakPracticeText = async (text: string) => {
     if (!text) return;
+    if (!speakerEnabledRef.current) {
+      setIsClinicSpeaking(false);
+      return;
+    }
     setIsClinicSpeaking(true);
 
     // Speaker Mode Auto-Pause to prevent feedback echo loops
@@ -892,9 +938,18 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
-      
+      audio.volume = speakerEnabledRef.current ? 1 : 0;
+      if (selectedSpeaker && typeof (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId === "function") {
+        try {
+          await (audio as HTMLAudioElement & { setSinkId: (id: string) => Promise<void> }).setSinkId(selectedSpeaker);
+        } catch {
+          // keep default output
+        }
+      }
+
       audio.onended = () => {
         setIsClinicSpeaking(false);
+        URL.revokeObjectURL(url);
         if (!isHeadphonesMode && mediaRecorderRef.current && mediaRecorderRef.current.state === "paused") {
           isListeningRef.current = true;
           try { mediaRecorderRef.current.resume(); } catch (e) {}
@@ -903,6 +958,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
       audio.onerror = () => {
         setIsClinicSpeaking(false);
+        URL.revokeObjectURL(url);
         if (!isHeadphonesMode && mediaRecorderRef.current && mediaRecorderRef.current.state === "paused") {
           isListeningRef.current = true;
           try { mediaRecorderRef.current.resume(); } catch (e) {}
@@ -1037,18 +1093,23 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         }
       }
 
+      await attachRemoteAudio(remoteStream);
+
       // 3. Web Audio stereo merger setup
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioCtx();
       audioCtxRef.current = audioCtx;
+      if (audioCtx.state === "suspended") await audioCtx.resume();
 
       const micSource = audioCtx.createMediaStreamSource(micStream);
       const merger = audioCtx.createChannelMerger(2);
-      micSource.connect(merger, 0, 0); // Jamil mic to Left channel (0)
+      micSource.connect(merger, 0, 0); // You (founder) mic → Left channel (0)
 
       if (remoteStream && remoteStream.getAudioTracks().length > 0) {
         const remoteSource = audioCtx.createMediaStreamSource(remoteStream);
-        remoteSource.connect(merger, 0, 1); // Clinic speaker to Right channel (1)
+        remoteSource.connect(merger, 0, 1); // Clinic → Right channel (1)
+      } else {
+        toast.warning("Clinic audio stream not available yet — transcription may be one-sided.");
       }
 
       const dest = audioCtx.createMediaStreamDestination();
@@ -1065,7 +1126,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         endpointing: "300",
       });
       const wsUrl = `wss://api.deepgram.com/v1/listen?${queryParams.toString()}`;
-      
+
       console.log("Connecting to Deepgram WebSocket (Stereo mode)...");
       const ws = new WebSocket(wsUrl, ["token", dgTokenData.token]);
       deepgramSocketRef.current = ws;
@@ -1074,7 +1135,6 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         console.log("Deepgram WebSocket stereo connection active.");
         setSpeechRecognitionUnavailable(false);
 
-        // 5. Initialize MediaRecorder to stream raw audio in 250ms chunks
         let mimeType = "audio/webm";
         if (typeof MediaRecorder !== "undefined") {
           if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -1099,37 +1159,31 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       };
 
       ws.onmessage = (event) => {
-        // Speaker Mode feedback loop prevention:
-        if (isClinicSpeaking && !isHeadphonesMode) {
-          return;
-        }
-
         try {
           const data = JSON.parse(event.data);
           const channelData = data.channel;
           const transcriptText = channelData?.alternatives?.[0]?.transcript;
-          
-          if (transcriptText && data.is_final) {
-            const spokenText = transcriptText.trim();
-            if (spokenText) {
-              // Left channel index 0 matches Jamil, Right channel index 1 matches Clinic
-              const channelIndex = data.channel_index ?? 0;
-              const speaker = channelIndex === 0 ? "Jamil" : "Clinic";
+          if (!transcriptText || !data.is_final) return;
 
-              if (speaker === "Jamil") {
-                if (isPracticeMode) {
-                  handleUserSpeechInput(spokenText);
-                } else {
-                  handleManualTranscriptInput(spokenText);
-                }
-              } else {
-                setTranscript((prev) => [
-                  ...prev,
-                  { speaker: "Clinic", text: spokenText, timestamp: new Date().toISOString() }
-                ]);
-              }
+          const spokenText = transcriptText.trim();
+          if (!spokenText) return;
+
+          // Deepgram multichannel: channel_index is usually [0] or [1]
+          const rawIndex = data.channel_index;
+          const channelIndex = Array.isArray(rawIndex) ? Number(rawIndex[0] ?? 0) : Number(rawIndex ?? 0);
+          const speaker = channelIndex === 0 ? "Jamil" : "Clinic";
+          const nextLine = { speaker, text: spokenText, timestamp: new Date().toISOString() };
+
+          setTranscript((prev) => {
+            const duplicate = prev.at(-1)?.speaker === speaker && prev.at(-1)?.text === spokenText;
+            if (duplicate) return prev;
+            const next = [...prev, nextLine];
+            // Silent coach: only clinic turns should refresh "what to say next"
+            if (speaker === "Clinic") {
+              void requestManualCopilot(next);
             }
-          }
+            return next;
+          });
         } catch (e) {
           console.error("Error parsing Deepgram stereo transcript:", e);
         }
@@ -1140,7 +1194,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
     } catch (err: any) {
       console.error("Deepgram stereo transcription setup failed:", err);
-      toast.warning("Deepgram transcription failed. Real-time translation might be unavailable.");
+      toast.warning("Deepgram transcription failed. You can still talk — type clinic replies if needed.");
+      setSpeechRecognitionUnavailable(true);
     }
   };
 
@@ -1182,7 +1237,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         const wrapUpText = "Okay Jamil, that sounds good. We are all set here. Goodbye!";
         setTranscript((prev) => [...prev, { speaker: "Clinic", text: wrapUpText, timestamp: new Date().toISOString() }]);
         speakPracticeText(wrapUpText);
-        setCopilotSuggestion("Outreach target met. Click 'End Practice Call' to finalize.");
+        setCopilotSuggestion("Outreach target met. Click 'Hang Up' to finalize.");
         setCopilotQuestion(null);
       }, 1500);
     }
@@ -1256,6 +1311,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       micStreamRef.current = null;
     }
 
+    if (audioCtxRef.current) {
+      try { void audioCtxRef.current.close(); } catch (e) {}
+      audioCtxRef.current = null;
+    }
+
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
@@ -1265,11 +1325,97 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   // Helpers
   async function persistCallSession(data: Record<string, unknown>) {
     if (!callSessionId) return;
+    const payload: Record<string, unknown> = { ...data };
+    if (payload.transcript !== undefined && typeof payload.transcript !== "string") {
+      payload.transcript = JSON.stringify(payload.transcript);
+    }
+    if (payload.structuredData !== undefined && typeof payload.structuredData !== "string") {
+      payload.structuredData = JSON.stringify(payload.structuredData);
+    }
+    if (payload.aiSuggestions !== undefined && typeof payload.aiSuggestions !== "string") {
+      payload.aiSuggestions = JSON.stringify(payload.aiSuggestions);
+    }
     await fetch(`/api/calls/${callSessionId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     }).catch(() => undefined);
+  }
+
+  async function createCallSession(environment: "live" | "practice") {
+    if (!activeClinic) return null;
+    try {
+      const response = await fetch("/api/telephony/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clinicId: activeClinic.id, callEnvironment: environment }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.callSessionId) {
+        console.warn("Could not create call session:", payload.error);
+        return null;
+      }
+      setCallSessionId(payload.callSessionId);
+      return payload.callSessionId as string;
+    } catch (error) {
+      console.warn("Call session create failed:", error);
+      return null;
+    }
+  }
+
+  function stopRemoteAudio() {
+    if (remoteAudioRef.current) {
+      try {
+        remoteAudioRef.current.pause();
+        remoteAudioRef.current.srcObject = null;
+        remoteAudioRef.current.remove();
+      } catch {
+        // ignore cleanup errors
+      }
+      remoteAudioRef.current = null;
+    }
+  }
+
+  async function attachRemoteAudio(stream: MediaStream | null | undefined) {
+    if (!stream || stream.getAudioTracks().length === 0) return;
+    stopRemoteAudio();
+    const audio = document.createElement("audio");
+    audio.autoplay = true;
+    audio.setAttribute("playsinline", "true");
+    audio.srcObject = stream;
+    audio.muted = !speakerEnabledRef.current;
+    if (selectedSpeaker && typeof (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId === "function") {
+      try {
+        await (audio as HTMLAudioElement & { setSinkId: (id: string) => Promise<void> }).setSinkId(selectedSpeaker);
+      } catch {
+        // Browser may deny sink selection; keep default output.
+      }
+    }
+    document.body.appendChild(audio);
+    remoteAudioRef.current = audio;
+    try {
+      await audio.play();
+    } catch (error) {
+      console.warn("Remote clinic audio playback blocked:", error);
+      toast.warning("Click Speaker once if you cannot hear the clinic.");
+    }
+  }
+
+  function setAssistantSpeakerEnabled(enabled: boolean) {
+    if (remoteAudioRef.current) remoteAudioRef.current.muted = !enabled;
+    document.querySelectorAll("audio[data-participant-id]").forEach((node) => {
+      (node as HTMLAudioElement).muted = !enabled;
+    });
+    if (vapiPracticeRef.current) {
+      try {
+        vapiPracticeRef.current.send({
+          type: "control",
+          control: enabled ? "unmute-assistant" : "mute-assistant",
+        });
+      } catch {
+        // ignore control errors
+      }
+    }
   }
 
   function selectClinic(id: string) {
@@ -1290,6 +1436,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       clearTimeout(practiceConnectTimeoutRef.current);
       practiceConnectTimeoutRef.current = null;
     }
+    if (telnyxCallRef.current) {
+      try { telnyxCallRef.current.hangup(); } catch (e) {}
+      telnyxCallRef.current = null;
+    }
+    stopRemoteAudio();
     setCallState("idle");
     setCallDuration(0);
     setNotes("");
@@ -1345,31 +1496,39 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       try { telnyxClientRef.current.disconnect(); } catch (e) {}
       telnyxClientRef.current = null;
     }
+    stopRemoteAudio();
+
+    if (vapiPracticeRef.current) {
+      void vapiPracticeRef.current.stop();
+      vapiPracticeRef.current = null;
+    }
 
     if (practiceConnectTimeoutRef.current) clearTimeout(practiceConnectTimeoutRef.current);
     practiceConnectTimeoutRef.current = null;
-    
+
     setCallState("ended");
     stopSpeechRecognition();
     if (timerRef.current) clearInterval(timerRef.current);
-    
-    // Save to Supabase setting environment to practice
+
+    const finalTranscript = transcriptRef.current;
     void persistCallSession({
       status: "ended",
       endedAt: new Date().toISOString(),
-      durationSec: callDuration,
-      callEnvironment: isPracticeMode ? "practice" : "live",
+      durationSec: callDurationRef.current,
+      transcript: finalTranscript,
       structuredData: {
         isPractice: isPracticeMode,
+        callEnvironment: isPracticeMode ? "practice" : "live",
         practiceScenario,
         practicePersona,
         practiceDifficulty,
         callQualityScore,
         speakingListeningRatio,
         interruptionCount: practiceInterruptionCount,
-      }
+        transcript: finalTranscript,
+      },
     });
-    toast.info(`Session ended · ${formatDuration(callDuration)}`);
+    toast.info(`Session ended · ${formatDuration(callDurationRef.current)}`);
   }
 
   function toggleMute() {
@@ -1394,6 +1553,13 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     toast.info(muted ? "Microphone active" : "Microphone muted");
   }
 
+  function toggleSpeaker() {
+    const next = !speakerEnabled;
+    setSpeakerEnabled(next);
+    setAssistantSpeakerEnabled(next);
+    toast.info(next ? "Clinic speaker on" : "Clinic speaker muted");
+  }
+
   function toggleHold() {
     if (callState === "connected") {
       if (telnyxCallRef.current) {
@@ -1413,7 +1579,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   }
 
   async function startCall() {
-    if (startingCallRef.current || callState !== "idle") return;
+    if (startingCallRef.current || (callState !== "idle" && callState !== "ended" && callState !== "failed" && callState !== "provider_unavailable")) return;
     if (!activeClinic?.primaryPhone) {
       toast.error("Selected clinic has no phone number.");
       return;
@@ -1430,6 +1596,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setActiveStage("intro");
 
     try {
+      await createCallSession("live");
+
       // 1. Capture user microphone
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
@@ -1439,66 +1607,72 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       setMicTestPassed(true);
       isListeningRef.current = true;
 
-      // 2. Fetch Telnyx WebRTC JWT Token
+      // 2. Fetch Telnyx WebRTC JWT Token — fail loud, no fake softphone
       const tokenRes = await fetch("/api/telephony/token");
-      const tokenData = await tokenRes.json().catch(() => ({}));
-      
-      if (!tokenRes.ok || !tokenData.token) {
-        console.warn("Telnyx credentials missing. Falling back to Simulated VoIP Mode.");
-        toast.info("Telnyx configuration not found. Starting call in Simulated VoIP Mode.");
-        
-        setCallState("dialing");
-        setTimeout(() => {
-          setCallState("connected");
-          toast.success("Simulated VoIP call connected. Speak naturally.");
-          // Start browser single channel Deepgram translation
-          void startSpeechRecognition();
-        }, 1500);
-        startingCallRef.current = false;
+      const tokenData = await tokenRes.json().catch(() => ({})) as { token?: string; callerNumber?: string; error?: string };
+
+      if (!tokenRes.ok || !tokenData.token || !tokenData.callerNumber) {
+        stopSpeechRecognition();
+        setCallState("provider_unavailable");
+        toast.error(tokenData.error || "Telnyx softphone is not configured. Fix TELNYX_* env vars and retry.");
+        void persistCallSession({
+          status: "provider_unavailable",
+          failureCode: "TELNYX_CONFIGURATION_MISSING",
+          failureMessage: tokenData.error || "Telnyx token unavailable",
+          endedAt: new Date().toISOString(),
+        });
         return;
       }
 
-      // 3. Initialize TelnyxRTC client (dynamic load to prevent SSR crashes)
-      let client = telnyxClientRef.current;
-      if (!client) {
-        const { TelnyxRTC } = await import("@telnyx/webrtc");
-        client = new TelnyxRTC({
-          login_token: tokenData.token,
-        });
-        telnyxClientRef.current = client;
-
-        client.on("telnyx.ready", () => {
-          console.log("TelnyxRTC line registered.");
-          toast.success("Telnyx softphone registered.");
-        });
-
-        client.on("telnyx.error", (err: any) => {
-          console.error("Telnyx client error:", err);
-          toast.error(`Telnyx connection error: ${err.message || "Line failed"}`);
-        });
-
-        client.connect();
+      // 3. Initialize TelnyxRTC client
+      if (telnyxClientRef.current) {
+        try { telnyxClientRef.current.disconnect(); } catch (e) {}
+        telnyxClientRef.current = null;
       }
+
+      const { TelnyxRTC } = await import("@telnyx/webrtc");
+      const client = new TelnyxRTC({ login_token: tokenData.token });
+      telnyxClientRef.current = client;
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error("Telnyx softphone registration timed out.")), 20000);
+        client.on("telnyx.ready", () => {
+          window.clearTimeout(timeout);
+          toast.success("Telnyx softphone registered.");
+          resolve();
+        });
+        client.on("telnyx.error", (err: any) => {
+          window.clearTimeout(timeout);
+          reject(new Error(err?.message || "Telnyx line failed"));
+        });
+        client.connect();
+      });
 
       // 4. Dial outbound clinic PSTN number
       const call = client.newCall({
         destinationNumber: activeClinic.primaryPhone,
-        callerNumber: process.env.TELNYX_PHONE_NUMBER || "+16017168585",
-      });
+        callerNumber: tokenData.callerNumber,
+      }) as any;
       telnyxCallRef.current = call;
-
       setCallState("dialing");
+      void persistCallSession({ status: "dialing" });
+
+      call.on("ringing", () => {
+        setCallState("ringing");
+        void persistCallSession({ status: "ringing" });
+      });
 
       call.on("active", () => {
         setCallState("connected");
-        toast.success("VoIP call connected.");
-        // Initialize Web Audio stereo merging and Deepgram WebSocket
+        void persistCallSession({ status: "connected" });
+        toast.success("Live softphone connected — AI is coaching silently.");
         void startDeepgramStereoTranscription(call, stream);
       });
 
       call.on("hangup", () => {
         toast.info("Call disconnected.");
         stopSpeechRecognition();
+        stopRemoteAudio();
         setCallState("ended");
       });
 
@@ -1506,15 +1680,28 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         console.error("Telnyx Call error:", err);
         toast.error(`Call error: ${err.message || "Line issue"}`);
         stopSpeechRecognition();
+        stopRemoteAudio();
         setCallState("failed");
+        void persistCallSession({
+          status: "failed",
+          failureCode: "TELNYX_CALL_ERROR",
+          failureMessage: err?.message || "Call failed",
+          endedAt: new Date().toISOString(),
+        });
       });
 
     } catch (err: any) {
       console.error("Outbound call initialization failed:", err);
-      toast.warning("Telephony API failed. Checking backup visualizer route.");
-      // Fallback to local audio simulator
-      setCallState("connected");
-      void startSpeechRecognition();
+      stopSpeechRecognition();
+      stopRemoteAudio();
+      setCallState("failed");
+      toast.error(err?.message || "Could not start Telnyx softphone call.");
+      void persistCallSession({
+        status: "failed",
+        failureCode: "TELNYX_START_FAILED",
+        failureMessage: err?.message || "Softphone start failed",
+        endedAt: new Date().toISOString(),
+      });
     } finally {
       startingCallRef.current = false;
     }
@@ -1570,7 +1757,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       answered: outcomeConfig?.connected ?? false,
       decisionMakerReached: qualification.q1 ?? false,
       interestLevel,
-      notes: notes || `Practice Session log: ${outcomeConfig?.label || outcome}`,
+      notes: notes || `${isPracticeMode ? "Practice" : "Live"} session log: ${outcomeConfig?.label || outcome}`,
       nextAction: nextAction || undefined,
       nextActionAt: followUpDate ? new Date(followUpDate).toISOString() : undefined,
       followUpRequired: Boolean(nextAction),
@@ -1601,7 +1788,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         const body = await response.json().catch(() => ({}));
         throw new Error(body.error || "Failed to save call session.");
       }
-      toast.success(isPracticeMode ? "Practice session scorecard saved." : "Live call logged.");
+      toast.success(isPracticeMode ? "Simulation scorecard saved." : "Live call logged.");
       resetCallState();
       loadData();
       refresh();
@@ -1613,8 +1800,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   // Filter out practice sessions from live analytics metrics
   const analyticsMetrics = useMemo(() => {
     const historyList = (callHistory || []).filter((c) => {
+      if (c.callEnvironment === "practice") return false;
       try {
-        const struct = JSON.parse(c.structuredData || "{}");
+        const struct = typeof c.structuredData === "string"
+          ? JSON.parse(c.structuredData || "{}")
+          : (c.structuredData || {});
         return struct.callEnvironment !== "practice" && struct.isPractice !== true;
       } catch (e) {
         return true;
@@ -1661,7 +1851,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Founder Calling Cockpit</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Call clinics from your phone while the silent copilot coaches and records outcomes
+            Dial clinics in-browser via Telnyx while Deepgram transcribes and the silent AI coach tells you what to say next
           </p>
         </div>
 
@@ -1679,7 +1869,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 }
                 setIsPracticeMode(false);
                 setIsLiveMode(true);
-                toast.success("Manual Phone Mode ready — you speak, AI coaches silently.");
+                toast.success("Live mode — Telnyx dials the real clinic, AI coaches silently.");
               }}
               className={`text-xs px-2.5 py-1.5 rounded font-bold transition-all ${
                 isLiveMode
@@ -1687,7 +1877,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   : "hover:bg-accent text-muted-foreground border border-transparent"
               }`}
             >
-              Manual Phone Call
+              Live
             </button>
             <button
               onClick={() => {
@@ -1697,7 +1887,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 }
                 setIsPracticeMode(true);
                 setIsLiveMode(false);
-                toast.success("Switched to Practice Mode — AI Clinic Simulation.");
+                toast.success("Simulation mode — the AI plays the clinic, same call flow as live.");
               }}
               className={`text-xs px-2.5 py-1.5 rounded font-bold transition-all ${
                 isPracticeMode
@@ -1705,7 +1895,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   : "hover:bg-accent text-muted-foreground border border-transparent"
               }`}
             >
-              Practice Roleplay
+              Simulation
             </button>
           </div>
         </div>
@@ -1718,13 +1908,13 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           : "bg-emerald-50 border-emerald-200 text-emerald-800"
       }`}>
         {isPracticeMode
-          ? "PRACTICE ROLEPLAY — SIMULATED CLINIC"
-          : "MANUAL PHONE MODE — YOUR VOICE · VERIZON CALL · SILENT AI COACH"}
+          ? "SIMULATION — AI ACTS AS THE CLINIC · SAME FLOW AS LIVE · SILENT AI COACH"
+          : "LIVE — TELNYX SOFTPHONE · REAL CLINIC · SILENT AI COACH"}
       </div>
 
       {/* PERFORMANCE ANALYTICS BAR */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <MetricCard label="Total Live Calls" value={analyticsMetrics.count} icon={PhoneCall} tone="default" hint="Practice calls excluded" />
+        <MetricCard label="Total Live Calls" value={analyticsMetrics.count} icon={PhoneCall} tone="default" hint="Simulation calls excluded" />
         <MetricCard label="Answer Rate" value={`${analyticsMetrics.answerRate}%`} icon={TrendingUp} tone="teal" hint="Calls connected" />
         <MetricCard label="Conversations" value={`${analyticsMetrics.convRate}%`} icon={Activity} tone="violet" hint="Decision maker reached" />
         <MetricCard label="Listing Permission" value={`${analyticsMetrics.permRate}%`} icon={Award} tone="green" hint="Of conversations" />
@@ -1870,7 +2060,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               </Button>
             </div>
             <Badge variant="outline" className="text-[10px] uppercase font-mono bg-background">
-              {isPracticeMode ? "PRACTICE" : "LIVE"}
+              {isPracticeMode ? "SIMULATION" : "LIVE"}
             </Badge>
           </div>
 
@@ -1955,13 +2145,17 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         {/* CENTER COLUMN: Dialer, Configs, Live transcript */}
         <div className={`lg:col-span-6 flex flex-col gap-4 ${mobileTab !== "dialer" ? "hidden lg:flex" : ""}`}>
 
-          {!isPracticeMode && callState === "idle" && activeClinic && (
-            <Card className="p-4 border-emerald-200 bg-emerald-50/40">
+          {callState === "idle" && activeClinic && (
+            <Card className={`p-4 ${isPracticeMode ? "border-indigo-200 bg-indigo-50/40" : "border-emerald-200 bg-emerald-50/40"}`}>
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div>
-                  <p className="font-bold text-sm text-emerald-950">Use your Pixel on speakerphone</p>
-                  <p className="text-xs text-emerald-800 mt-1">
-                    Copy the clinic number, dial it from Verizon, place the phone near this computer, then start coaching.
+                  <p className={`font-bold text-sm ${isPracticeMode ? "text-indigo-950" : "text-emerald-950"}`}>
+                    {isPracticeMode ? `Call ${activeClinic.name} (AI answers as the clinic)` : `Call ${activeClinic.name}`}
+                  </p>
+                  <p className={`text-xs mt-1 ${isPracticeMode ? "text-indigo-800" : "text-emerald-800"}`}>
+                    {isPracticeMode
+                      ? "Exact same flow as Live: you talk, the AI clinic answers out loud, the copilot tells you what to say next."
+                      : "You speak to the clinic through the Telnyx softphone; Deepgram transcribes both sides; the copilot tells you what to say next."}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 shrink-0">
@@ -1970,14 +2164,18 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                     disabled={!activeClinic.primaryPhone}
                     onClick={async () => {
                       await navigator.clipboard.writeText(activeClinic.primaryPhone ?? "");
-                      toast.success("Clinic number copied. Dial it from your Pixel.");
+                      toast.success("Clinic number copied.");
                     }}
-                    className="border-emerald-300 bg-white"
+                    className={isPracticeMode ? "border-indigo-300 bg-white" : "border-emerald-300 bg-white"}
                   >
-                    <Phone className="size-4" /> Copy {formatPhone(activeClinic.primaryPhone)}
+                    <Phone className="size-4" /> {formatPhone(activeClinic.primaryPhone)}
                   </Button>
-                  <Button onClick={startCall} disabled={!activeClinic.primaryPhone} className="bg-emerald-600 hover:bg-emerald-700">
-                    <Mic className="size-4" /> Start Coaching
+                  <Button
+                    onClick={isPracticeMode ? startPracticeCall : startCall}
+                    disabled={(!isPracticeMode && !activeClinic.primaryPhone) || startingCallRef.current}
+                    className={isPracticeMode ? "bg-indigo-600 hover:bg-indigo-700" : "bg-emerald-600 hover:bg-emerald-700"}
+                  >
+                    <Mic className="size-4" /> Start Call
                   </Button>
                 </div>
               </div>
@@ -1988,8 +2186,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           {isPracticeMode && callState === "idle" && (
             <Card className="p-4 border-indigo-200 bg-indigo-50/10 space-y-3.5">
               <span className="font-bold text-sm flex items-center gap-1.5 text-indigo-950">
-                <SlidersHorizontal className="size-4 text-indigo-600" /> Human-Voice Practice Roleplay
+                <SlidersHorizontal className="size-4 text-indigo-600" /> Simulation — the AI acts as the clinic
               </span>
+              <p className="text-xs text-indigo-900/80">
+                Exact same call flow as Live: you talk, the AI clinic answers out loud, and the silent copilot tells you what to say next. Only the other end of the line is simulated.
+              </p>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
                 {/* Persona */}
@@ -2204,14 +2405,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   <div className="text-center md:text-left">
                     <div className="flex items-center gap-1.5 justify-center md:justify-start">
                       <span className="text-xs font-bold tracking-wide uppercase">
-                        {isPracticeMode ? "PRACTICE SIMULATION" : "MANUAL PHONE COACHING"}
+                        {isPracticeMode ? "SIMULATION — AI CLINIC" : "LIVE — TELNYX SOFTPHONE"}
                       </span>
                       <span className={`size-2 rounded-full ${
                         callState === "connected" ? "bg-emerald-500" : callState === "idle" ? "bg-slate-500" : "bg-amber-500"
                       }`} />
                     </div>
                     <p className="text-sm font-semibold tracking-wider font-mono mt-0.5">
-                      {isPracticeMode ? `Simulating ${PRACTICE_PERSONAS.find(p => p.id === practicePersona)?.name}` : formatPhone(activeClinic.primaryPhone)}
+                      {isPracticeMode ? `${activeClinic.name} (AI)` : formatPhone(activeClinic.primaryPhone)}
                     </p>
                   </div>
                 </div>
@@ -2231,7 +2432,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                         onClick={startPracticeCall}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-6 h-11 rounded-lg flex items-center gap-2 shadow-lg"
                       >
-                        <Mic className="size-4" /> START PRACTICE CALL
+                        <Mic className="size-4" /> Start Call
                       </Button>
                     ) : (
                       <Button
@@ -2239,7 +2440,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                         disabled={startingCallRef.current}
                         className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-6 h-11 rounded-lg flex items-center gap-2 shadow-lg"
                       >
-                        <Mic className="size-4" /> Start Coaching Session
+                        <Mic className="size-4" /> Start Call
                       </Button>
                     )
                   ) : (
@@ -2288,10 +2489,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   </button>
 
                   <button
-                    onClick={() => {
-                      setSpeakerEnabled(!speakerEnabled);
-                      toast.info(speakerEnabled ? "Speaker muted" : "Speaker unmuted");
-                    }}
+                    onClick={toggleSpeaker}
                     className={`flex flex-col items-center justify-center p-2 rounded-lg hover:bg-slate-800 transition-colors ${
                       speakerEnabled ? "text-emerald-400 bg-emerald-500/10" : ""
                     }`}
@@ -2320,7 +2518,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   <div className="flex flex-col items-center justify-center p-2 text-slate-500">
                     <Clock className="size-5" />
                     <span className="text-[9px] font-bold mt-1 uppercase font-mono text-slate-400">
-                      {isPracticeMode ? "PRACTICE" : "VOIP APP"}
+                      {isPracticeMode ? "SIM" : "TELNYX"}
                     </span>
                   </div>
                 </div>
@@ -2424,7 +2622,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                       value={practiceResponse}
                       onChange={(event) => setPracticeResponse(event.target.value)}
                       placeholder={isPracticeMode ? "Type what you would say to the clinic…" : "Type what the clinic just said…"}
-                      aria-label={isPracticeMode ? "Practice response" : "Clinic response"}
+                      aria-label={isPracticeMode ? "Simulation response" : "Clinic response"}
                     />
                     {speechRecognitionUnavailable && (
                       <p className="mt-1 text-[10px] text-amber-700">
@@ -2508,7 +2706,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   </div>
                 </div>
                 <Badge variant="secondary" className="bg-indigo-100 text-indigo-800 text-[9px] uppercase border border-indigo-200">
-                  {isPracticeMode ? "Sim Practice" : copilotSource === "ai" ? "Live AI" : copilotSource === "field_guide" ? "Field Guide" : "Opening"}
+                  {isPracticeMode ? "Simulation" : copilotSource === "ai" ? "Live AI" : copilotSource === "field_guide" ? "Field Guide" : "Opening"}
                 </Badge>
               </div>
 
@@ -2685,7 +2883,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 <div className="flex items-center gap-1.5">
                   <Sparkles className="size-4 text-indigo-600" />
                   <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wide">
-                    {isPracticeMode ? "AI Practice Scorecard" : "Post-Call AI Summary"}
+                    {isPracticeMode ? "Simulation Scorecard" : "Post-Call AI Summary"}
                   </h4>
                 </div>
                 {callQualityScore > 0 && (
@@ -2847,7 +3045,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 disabled={callState !== "idle" && callState !== "ended"}
                 className="w-full h-10 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-md shrink-0"
               >
-                {isPracticeMode ? "Save Practice Scorecard" : "Save Live Outcome"}
+                {isPracticeMode ? "Save Simulation Scorecard" : "Save Live Outcome"}
               </Button>
             </Card>
           )}

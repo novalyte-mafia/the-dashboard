@@ -39,6 +39,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (existingCall && existingCall.clinicId !== id) {
     return NextResponse.json({ error: "Call session does not belong to this clinic" }, { status: 409 });
   }
+  const callEnvironment = body.callEnvironment === "practice" ? "practice" : "live";
+  const transcriptPayload = body.structuredData && typeof body.structuredData === "object"
+    ? JSON.stringify((body.structuredData as { transcript?: unknown }).transcript ?? [])
+    : undefined;
+
   const call = existingCall
     ? await db.callSession.update({
       where: { id: existingCall.id },
@@ -56,7 +61,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         doNotCall,
         invalidNumber,
         status: "saved",
-        structuredData: JSON.stringify(body.structuredData ?? {}),
+        callEnvironment,
+        ...(transcriptPayload ? { transcript: transcriptPayload } : {}),
+        structuredData: JSON.stringify({
+          ...(typeof body.structuredData === "object" && body.structuredData ? body.structuredData : {}),
+          callEnvironment,
+          isPractice: callEnvironment === "practice",
+        }),
       },
     })
     : await db.callSession.create({
@@ -69,6 +80,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       answered,
       outcome,
       notes: (body.notes as string) ?? null,
+      callEnvironment,
+      provider: callEnvironment === "practice" ? "vapi_practice" : "telnyx",
+      transcript: transcriptPayload ?? "[]",
       aiTopicTags: JSON.stringify({
         direction: String(body.direction ?? "outbound"),
         attemptNumber,
@@ -79,12 +93,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         durationSec: Number(body.durationSec ?? 0),
       }),
       status: "saved",
-      structuredData: JSON.stringify(body.structuredData ?? {}),
+      structuredData: JSON.stringify({
+        ...(typeof body.structuredData === "object" && body.structuredData ? body.structuredData : {}),
+        callEnvironment,
+        isPractice: callEnvironment === "practice",
+      }),
     },
   });
 
   // Update clinic state if not a practice session
-  const isPractice = body.callEnvironment === "practice";
+  const isPractice = callEnvironment === "practice";
   if (!isPractice) {
     const updateData: Record<string, unknown> = {
       lastContactedAt: new Date(),

@@ -1,12 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAdminRole } from "@/lib/auth";
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const admin = await requireAdminRole(["admin", "operations", "sales", "directory_reviewer"]);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const apiKey = process.env.TELNYX_API_KEY?.trim();
   const credentialId = process.env.TELNYX_CREDENTIAL_ID?.trim();
+  const callerNumber = process.env.TELNYX_PHONE_NUMBER?.trim();
 
   if (!apiKey || !credentialId) {
     return NextResponse.json(
@@ -15,11 +16,18 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  if (!callerNumber) {
+    return NextResponse.json(
+      { error: "TELNYX_PHONE_NUMBER is not configured." },
+      { status: 503 }
+    );
+  }
+
   try {
     const res = await fetch(`https://api.telnyx.com/v2/telephony_credentials/${credentialId}/token`, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
     });
@@ -31,7 +39,7 @@ export async function GET(req: NextRequest) {
 
     const payload = await res.json();
     const token = payload.data || payload.token || payload;
-    return NextResponse.json({ token });
+    return NextResponse.json({ token, callerNumber });
   } catch (error) {
     console.error("Failed to generate Telnyx token:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
