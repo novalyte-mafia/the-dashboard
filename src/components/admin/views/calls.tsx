@@ -131,6 +131,50 @@ function manualFieldGuideResponse(clinicReply: string) {
   return "Thank you. To make sure we list the clinic accurately, may I confirm your public phone number, services, and whether you are accepting new patients?";
 }
 
+// ---------------------------------------------------------------------------
+// INLINE COACH TRANSCRIPT HELPERS
+// Private coaching cues shown in the live transcript after clinic turns.
+// Never spoken aloud — Jamil reads and delivers them.
+// ---------------------------------------------------------------------------
+type TranscriptLine = {
+  speaker: string;
+  text: string;
+  timestamp: string;
+  kind?: "utterance" | "coach";
+};
+
+const COACH_DRAFTING_TEXT = "Coach is drafting…";
+
+function isCoachLine(line: TranscriptLine | undefined): boolean {
+  return Boolean(line && (line.kind === "coach" || line.speaker === "Coach"));
+}
+
+function lastUtterance(lines: TranscriptLine[]): TranscriptLine | undefined {
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (!isCoachLine(lines[i])) return lines[i];
+  }
+  return undefined;
+}
+
+/** Replace trailing coach bubble, or append one after the latest clinic turn. */
+function upsertInlineCoachSuggestion(lines: TranscriptLine[], text: string): TranscriptLine[] {
+  if (!text.trim()) return lines;
+  const coachLine: TranscriptLine = {
+    speaker: "Coach",
+    text,
+    timestamp: new Date().toISOString(),
+    kind: "coach",
+  };
+  if (isCoachLine(lines.at(-1))) {
+    return [...lines.slice(0, -1), coachLine];
+  }
+  return [...lines, coachLine];
+}
+
+function utteranceTranscript(lines: TranscriptLine[]): TranscriptLine[] {
+  return lines.filter((line) => !isCoachLine(line));
+}
+
 const PRACTICE_SCENARIOS: ScenarioConfig[] = [
   {
     id: "scenario_friendly",
@@ -318,7 +362,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const [providerCallId, setProviderCallId] = useState<string | null>(null);
 
   // Live Copilot & Transcript
-  const [transcript, setTranscript] = useState<{ speaker: string; text: string; timestamp: string }[]>([]);
+  const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [activeStage, setActiveStage] = useState<string>("intro");
   const [copilotSuggestion, setCopilotSuggestion] = useState<string | null>("Place a call to receive private, suggested talk tracks.");
   const [copilotLoading, setCopilotLoading] = useState(false);
@@ -375,7 +419,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const callDurationRef = useRef(0);
   const startingCallRef = useRef(false);
-  const transcriptRef = useRef<{ speaker: string; text: string; timestamp: string }[]>([]);
+  const transcriptRef = useRef<TranscriptLine[]>([]);
   const speakerEnabledRef = useRef(true);
   const practiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastMicAudioAtRef = useRef(0);
@@ -506,7 +550,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             setActiveStage(event.payload);
             break;
           case "transcript":
-            setTranscript((prev) => [...prev, event.payload]);
+            setTranscript((prev) => [...prev, event.payload as TranscriptLine]);
             break;
           case "checklist":
             setQualification((prev) => {
@@ -524,6 +568,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             setClinicFacts(event.payload.facts ?? []);
             setCopilotWarning(event.payload.warning ?? null);
             setCopilotNextAction(event.payload.nextAction ?? null);
+            if (event.payload.suggestion) {
+              setTranscript((prev) => upsertInlineCoachSuggestion(prev, event.payload.suggestion));
+            }
             if (event.payload.speakingPace) setSpeakingPace(event.payload.speakingPace);
             if (event.payload.interruptionWarning !== undefined) setInterruptionWarning(event.payload.interruptionWarning);
             break;
@@ -781,10 +828,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     const scenario = PRACTICE_SCENARIOS.find((s) => s.id === practiceScenario) || PRACTICE_SCENARIOS[0];
     const opening = scenario.initialPrompt || scenario.dialogueTree[0]?.clinicSpeech;
     setScenarioStepIndex(-1);
-    setCopilotSuggestion(scenario.dialogueTree[0]?.copilotSuggestion ?? "Introduce yourself and explain the free directory verification.");
+    const openingSuggestion = scenario.dialogueTree[0]?.copilotSuggestion ?? "Introduce yourself and explain the free directory verification.";
+    setCopilotSuggestion(openingSuggestion);
     setCopilotSource("ai");
     if (opening) {
-      setTranscript([{ speaker: "Clinic", text: opening, timestamp: new Date().toISOString() }]);
+      setTranscript([
+        { speaker: "Clinic", text: opening, timestamp: new Date().toISOString() },
+        { speaker: "Coach", text: openingSuggestion, timestamp: new Date().toISOString(), kind: "coach" },
+      ]);
       void speakPracticeText(opening);
     }
     void startSpeechRecognition();
@@ -876,7 +927,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       if (message?.type !== "transcript" || message?.transcriptType !== "final" || !message.transcript) return;
       const speaker = message.role === "assistant" ? "Clinic" : "Jamil";
       setTranscript((previous) => {
-        const duplicate = previous.at(-1)?.speaker === speaker && previous.at(-1)?.text === message.transcript;
+        const prior = lastUtterance(previous);
+        const duplicate = prior?.speaker === speaker && prior?.text === message.transcript;
         if (duplicate) return previous;
         const next = [...previous, { speaker, text: message.transcript, timestamp: new Date().toISOString() }];
         if (speaker === "Clinic") {
@@ -1261,10 +1313,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           const rawIndex = data.channel_index;
           const channelIndex = Array.isArray(rawIndex) ? Number(rawIndex[0] ?? 0) : Number(rawIndex ?? 0);
           const speaker = channelIndex === 0 ? "Jamil" : "Clinic";
-          const nextLine = { speaker, text: spokenText, timestamp: new Date().toISOString() };
+          const nextLine: TranscriptLine = { speaker, text: spokenText, timestamp: new Date().toISOString() };
 
           setTranscript((prev) => {
-            const duplicate = prev.at(-1)?.speaker === speaker && prev.at(-1)?.text === spokenText;
+            const prior = lastUtterance(prev);
+            const duplicate = prior?.speaker === speaker && prior?.text === spokenText;
             if (duplicate) return prev;
             const next = [...prev, nextLine];
             // Silent coach: only clinic turns should refresh "what to say next"
@@ -1324,36 +1377,50 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       // Out of script turns: wrap up the call
       setTimeout(() => {
         const wrapUpText = "Okay Jamil, that sounds good. We are all set here. Goodbye!";
-        setTranscript((prev) => [...prev, { speaker: "Clinic", text: wrapUpText, timestamp: new Date().toISOString() }]);
+        const wrapUpCoach = "Outreach target met. Click 'Hang Up' to finalize.";
+        setTranscript((prev) =>
+          upsertInlineCoachSuggestion(
+            [...prev, { speaker: "Clinic", text: wrapUpText, timestamp: new Date().toISOString() }],
+            wrapUpCoach,
+          ),
+        );
         speakPracticeText(wrapUpText);
-        setCopilotSuggestion("Outreach target met. Click 'Hang Up' to finalize.");
+        setCopilotSuggestion(wrapUpCoach);
         setCopilotQuestion(null);
       }, 1500);
     }
   };
 
-  const requestManualCopilot = async (conversation: { speaker: string; text: string }[]) => {
+  const requestManualCopilot = async (conversation: TranscriptLine[]) => {
     if (!activeClinic) return;
     setCopilotLoading(true);
+    setTranscript((prev) => upsertInlineCoachSuggestion(prev, COACH_DRAFTING_TEXT));
     try {
+      const spokenOnly = utteranceTranscript(conversation);
       const response = await fetch("/api/copilot/suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clinicName: activeClinic.name,
           clinicContext: `${activeClinic.city ?? ""}, ${activeClinic.state ?? ""}. Services: ${(activeClinic.services ?? []).join(", ")}`,
-          transcript: conversation.map((line) => `${line.speaker}: ${line.text}`).join("\n"),
+          transcript: spokenOnly.map((line) => `${line.speaker}: ${line.text}`).join("\n"),
           question: "What should Jamil say next to move this clinic toward a free verified directory listing?",
         }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Copilot failed.");
-      setCopilotSuggestion(payload.suggestion);
+      const suggestion = typeof payload.suggestion === "string" ? payload.suggestion : "";
+      setCopilotSuggestion(suggestion);
       setCopilotSource(payload.source === "field_guide" ? "field_guide" : "ai");
+      if (suggestion) {
+        setTranscript((prev) => upsertInlineCoachSuggestion(prev, suggestion));
+      }
     } catch (error) {
-      const latestClinicReply = conversation.at(-1)?.text ?? "";
-      setCopilotSuggestion(manualFieldGuideResponse(latestClinicReply));
+      const latestClinicReply = utteranceTranscript(conversation).at(-1)?.text ?? "";
+      const fallback = manualFieldGuideResponse(latestClinicReply);
+      setCopilotSuggestion(fallback);
       setCopilotSource("field_guide");
+      setTranscript((prev) => upsertInlineCoachSuggestion(prev, fallback));
       toast.info("Using the local field guide while the AI coaching provider is unavailable.");
     } finally {
       setCopilotLoading(false);
@@ -1362,7 +1429,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
   const handleManualTranscriptInput = (text: string) => {
     if (!text) return;
-    const nextLine = { speaker: "Clinic", text, timestamp: new Date().toISOString() };
+    const nextLine: TranscriptLine = { speaker: "Clinic", text, timestamp: new Date().toISOString() };
     setTranscript((previous) => {
       const next = [...previous, nextLine];
       void requestManualCopilot(next);
@@ -1376,6 +1443,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
     setActiveStage(currentStep.stage);
     setCopilotSuggestion(currentStep.copilotSuggestion);
+    setTranscript((prev) => upsertInlineCoachSuggestion(prev, currentStep.copilotSuggestion));
     setCopilotQuestion(currentStep.copilotQuestion);
     setObjectionGuidance(currentStep.objectionGuidance ?? null);
     setClinicFacts(currentStep.facts ?? []);
@@ -2647,11 +2715,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   <Activity className="size-4 text-emerald-500 animate-pulse" /> Live Call Transcript
                 </span>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] text-emerald-700 border-emerald-200 bg-emerald-50">
+                  <Badge variant="outline" className="text-[10px] text-indigo-700 border-indigo-200 bg-indigo-50">
                     Jamil (Operator)
                   </Badge>
                   <Badge variant="outline" className="text-[10px] text-slate-700 border-slate-200 bg-slate-50">
                     {isPracticeMode ? `AI ${PRACTICE_PERSONAS.find(p => p.id === practicePersona)?.role}` : "Clinic"}
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px] text-amber-800 border-amber-300 bg-amber-50">
+                    Coach
                   </Badge>
                 </div>
               </div>
@@ -2665,21 +2736,42 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   </div>
                 ) : (
                   transcript.map((line, idx) => {
-                    const isJamil = line.speaker === "Jamil";
+                    const isCoach = isCoachLine(line);
+                    const isJamil = !isCoach && line.speaker === "Jamil";
+                    const isDrafting = isCoach && line.text === COACH_DRAFTING_TEXT;
                     return (
                       <div
                         key={idx}
-                        className={`flex flex-col max-w-[85%] ${isJamil ? "ml-auto items-end" : "mr-auto items-start"}`}
+                        className={`flex flex-col max-w-[85%] ${
+                          isCoach ? "mr-auto items-start w-full max-w-[92%]" : isJamil ? "ml-auto items-end" : "mr-auto items-start"
+                        }`}
                       >
-                        <span className="text-[9px] text-muted-foreground font-semibold px-1 py-0.5 uppercase tracking-wide">
-                          {line.speaker}
+                        <span
+                          className={`text-[9px] font-semibold px-1 py-0.5 uppercase tracking-wide ${
+                            isCoach ? "text-amber-700" : "text-muted-foreground"
+                          }`}
+                        >
+                          {isCoach ? "Coach · Say this next" : line.speaker}
                         </span>
-                        <div className={`p-2.5 rounded-lg text-sm mt-0.5 shadow-sm leading-relaxed ${
-                          isJamil
-                            ? "bg-indigo-600 text-white rounded-tr-none"
-                            : "bg-card border text-foreground rounded-tl-none"
-                        }`}>
-                          {line.text}
+                        <div
+                          className={`p-2.5 rounded-lg text-sm mt-0.5 leading-relaxed ${
+                            isCoach
+                              ? `border border-dashed border-amber-400/80 bg-amber-50 text-amber-950 rounded-tl-none ${
+                                  isDrafting ? "italic text-amber-700/80" : ""
+                                }`
+                              : isJamil
+                                ? "bg-indigo-600 text-white rounded-tr-none shadow-sm"
+                                : "bg-card border text-foreground rounded-tl-none shadow-sm"
+                          }`}
+                        >
+                          {isCoach && !isDrafting ? (
+                            <span className="flex items-start gap-1.5">
+                              <Sparkles className="size-3.5 mt-0.5 shrink-0 text-amber-600" />
+                              <span>{line.text}</span>
+                            </span>
+                          ) : (
+                            line.text
+                          )}
                         </div>
                       </div>
                     );
