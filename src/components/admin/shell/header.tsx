@@ -238,6 +238,33 @@ export function AdminHeader({
           </PopoverContent>
         </Popover>
 
+        {/* Global Data Source Pill */}
+        {appConfig.dataMode === "live" && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 text-[10px] font-bold shrink-0">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+            </span>
+            LIVE DB
+          </div>
+        )}
+        {appConfig.dataMode === "hybrid" && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-blue-500/20 bg-blue-500/10 text-blue-700 text-[10px] font-bold shrink-0">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span>
+            </span>
+            HYBRID MODE
+          </div>
+        )}
+        {appConfig.dataMode === "demo" && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 text-amber-700 text-[10px] font-bold animate-pulse shrink-0">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
+            </span>
+            DEMO SANDBOX
+          </div>
+        )}
+
         {/* Quick Add */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

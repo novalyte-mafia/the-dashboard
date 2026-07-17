@@ -10,7 +10,9 @@ import {
   StatusBadge,
   PriorityBadge,
   MetricCard,
+  DataSourceBadge,
 } from "@/components/admin/shared";
+import { appConfig } from "@/config/app-config";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -1903,7 +1905,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="font-semibold text-sm truncate">{clinic.name}</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-semibold text-sm truncate">{clinic.name}</span>
+                          <DataSourceBadge source={(clinic as any).dataSource || (appConfig.liveClinics ? "live" : "demo")} />
+                        </div>
                         <PriorityBadge priority={clinic.priority} />
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted-foreground mt-0.5">
@@ -1924,7 +1929,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 callHistory.map((session) => (
                   <div key={session.id} className="p-3 text-xs flex flex-col gap-1.5 hover:bg-muted/10">
                     <div className="flex items-start justify-between gap-2">
-                      <span className="font-medium truncate">{session.clinicName}</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-medium truncate">{session.clinicName}</span>
+                        <DataSourceBadge source={(session as any).dataSource || (appConfig.liveClinics ? "live" : "demo")} />
+                      </div>
                       <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full ${
                         session.outcome === "interested" || session.outcome === "meeting_booked"
                           ? "bg-emerald-100 text-emerald-800 border-emerald-200"

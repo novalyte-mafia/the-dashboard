@@ -11,7 +11,9 @@ import {
   StageBadge,
   PriorityBadge,
   ReadinessScore,
+  DataSourceBadge,
 } from "@/components/admin/shared";
+import { appConfig } from "@/config/app-config";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -203,7 +205,10 @@ export function ClinicsView() {
                       <Building2 className="size-3.5 text-primary" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium truncate max-w-[200px]">{c.name}</p>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <p className="font-medium truncate max-w-[200px]">{c.name}</p>
+                        <DataSourceBadge source={(c as any).dataSource || (appConfig.liveClinics ? "live" : "demo")} />
+                      </div>
                       <p className="text-xs text-muted-foreground truncate max-w-[180px]">
                         {c.primaryPhone ? formatPhone(c.primaryPhone) : "No phone"}
                       </p>
