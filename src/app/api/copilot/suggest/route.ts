@@ -8,6 +8,11 @@ const schema = z.object({
   clinicContext: z.string().max(2000).default(""),
   transcript: z.string().max(6000).default(""),
   question: z.string().max(500).optional(),
+  stage: z.string().max(200).optional(),
+  qualificationSummary: z.string().max(800).optional(),
+  missingQualification: z.string().max(800).optional(),
+  detectedObjections: z.string().max(800).optional(),
+  previousSuggestions: z.string().max(1600).optional(),
 });
 
 export async function POST(req: NextRequest) {

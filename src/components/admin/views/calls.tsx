@@ -119,14 +119,28 @@ function manualFieldGuideResponse(clinicReply: string) {
   if (reply.includes("email") || reply.includes("send me")) {
     return "Absolutely. Before I send it, may I confirm the best email and the name of the person who manages your clinic listing?";
   }
-  if (reply.includes("cost") || reply.includes("price") || reply.includes("charge")) {
-    return "The basic verified listing is free. There is no charge to confirm your clinic information or publish the profile.";
+  if (
+    reply.includes("free") ||
+    reply.includes("fee") ||
+    reply.includes("fees") ||
+    reply.includes("cost") ||
+    reply.includes("price") ||
+    reply.includes("charge")
+  ) {
+    return "Yes—our verified directory listing is completely free. I just need your permission to include your clinic profile (and booking link, if you’d like).";
+  }
+  // Why are you calling?
+  if ((reply.includes("why") || reply.includes("reason")) && (reply.includes("calling") || reply.includes("called"))) {
+    return "Of course. We’re calling to verify your clinic’s public details for our directory—it's a free, permission-based listing. May I confirm a couple items to publish your verified profile?";
   }
   if (reply.includes("busy") || reply.includes("bad time") || reply.includes("call back")) {
     return "Of course. What day and time would be best for a two-minute verification call?";
   }
   if (reply.includes("manager") || reply.includes("owner") || reply.includes("doctor")) {
     return "Thank you. May I speak with that person briefly, or confirm their name and the best time to reach them?";
+  }
+  if (reply.includes("already") && (reply.includes("enough") || reply.includes("full"))) {
+    return "That’s completely fine. Even if you’re currently booked, our directory helps the right patients find the right providers. May I confirm permission to include your verified profile?";
   }
   return "Thank you. To make sure we list the clinic accurately, may I confirm your public phone number, services, and whether you are accepting new patients?";
 }
@@ -143,7 +157,8 @@ type TranscriptLine = {
   kind?: "utterance" | "coach";
 };
 
-const COACH_DRAFTING_TEXT = "Coach is drafting…";
+const COACH_DRAFTING_TEXT = "Understanding the clinic’s response…";
+const COACH_LISTENING_TEXT = "Listening for the clinic’s complete response…";
 
 function isCoachLine(line: TranscriptLine | undefined): boolean {
   return Boolean(line && (line.kind === "coach" || line.speaker === "Coach"));
@@ -156,7 +171,7 @@ function lastUtterance(lines: TranscriptLine[]): TranscriptLine | undefined {
   return undefined;
 }
 
-/** Replace trailing coach bubble, or append one after the latest clinic turn. */
+/** Keep exactly one inline coach card (active suggestion) at the end of the transcript. */
 function upsertInlineCoachSuggestion(lines: TranscriptLine[], text: string): TranscriptLine[] {
   if (!text.trim()) return lines;
   const coachLine: TranscriptLine = {
@@ -165,10 +180,8 @@ function upsertInlineCoachSuggestion(lines: TranscriptLine[], text: string): Tra
     timestamp: new Date().toISOString(),
     kind: "coach",
   };
-  if (isCoachLine(lines.at(-1))) {
-    return [...lines.slice(0, -1), coachLine];
-  }
-  return [...lines, coachLine];
+  const nonCoachLines = lines.filter((l) => !isCoachLine(l));
+  return [...nonCoachLines, coachLine];
 }
 
 function utteranceTranscript(lines: TranscriptLine[]): TranscriptLine[] {
@@ -363,6 +376,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
   // Live Copilot & Transcript
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
+  const [showNewMessages, setShowNewMessages] = useState(false);
+  const [newMessagesCount, setNewMessagesCount] = useState(0);
   const [activeStage, setActiveStage] = useState<string>("intro");
   const [copilotSuggestion, setCopilotSuggestion] = useState<string | null>("Place a call to receive private, suggested talk tracks.");
   const [copilotLoading, setCopilotLoading] = useState(false);
@@ -417,6 +432,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const simulatorRef = useRef<TelephonySimulator | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const transcriptScrollRef = useRef<HTMLDivElement | null>(null);
+  const atBottomRef = useRef(true);
+  const lastTranscriptLenRef = useRef(0);
+  const TRANSCRIPT_BOTTOM_THRESHOLD_PX = 120;
   const callDurationRef = useRef(0);
   const startingCallRef = useRef(false);
   const transcriptRef = useRef<TranscriptLine[]>([]);
@@ -452,9 +471,51 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     if (practiceConnectTimeoutRef.current) clearTimeout(practiceConnectTimeoutRef.current);
   }, []);
 
-  // Scroll transcript
+  // Controlled transcript auto-follow:
+  // - Only follow when user is already near the bottom.
+  // - If user scrolls up, stop auto-follow and show "New messages" button.
+  const handleTranscriptScroll = useCallback(() => {
+    const el = transcriptScrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const atBottom = distanceFromBottom <= TRANSCRIPT_BOTTOM_THRESHOLD_PX;
+    atBottomRef.current = atBottom;
+    if (atBottom) {
+      setShowNewMessages(false);
+      setNewMessagesCount(0);
+    }
+  }, []);
+
+  const jumpToTranscriptBottom = useCallback(() => {
+    const el = transcriptScrollRef.current;
+    if (!el) return;
+    atBottomRef.current = true;
+    setShowNewMessages(false);
+    setNewMessagesCount(0);
+    requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    });
+  }, []);
+
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = transcriptScrollRef.current;
+    const prevLen = lastTranscriptLenRef.current;
+    const newLen = transcript.length;
+
+    // Track new messages only when content actually grows.
+    if (newLen > prevLen) {
+      if (el && atBottomRef.current) {
+        requestAnimationFrame(() => {
+          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        });
+      } else {
+        const delta = newLen - prevLen;
+        setNewMessagesCount((c) => c + delta);
+        setShowNewMessages(true);
+      }
+    }
+
+    lastTranscriptLenRef.current = newLen;
   }, [transcript]);
 
   // Sync initial clinic ID selection
@@ -1316,15 +1377,46 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           const nextLine: TranscriptLine = { speaker, text: spokenText, timestamp: new Date().toISOString() };
 
           setTranscript((prev) => {
-            const prior = lastUtterance(prev);
-            const duplicate = prior?.speaker === speaker && prior?.text === spokenText;
-            if (duplicate) return prev;
-            const next = [...prev, nextLine];
-            // Silent coach: only clinic turns should refresh "what to say next"
-            if (speaker === "Clinic") {
-              void requestManualCopilot(next);
+            // Transcript may already contain a coach card; for utterance merging we only work with non-coach lines.
+            const prevNonCoach = prev.filter((l) => !isCoachLine(l));
+            const prior = prevNonCoach.at(-1);
+
+            // De-dup identical consecutive fragments.
+            if (prior?.speaker === speaker && prior?.text === spokenText) return prev;
+
+            const nowMs = Date.now();
+            const priorTimeMs = prior ? Date.parse(prior.timestamp) : NaN;
+            const shouldMerge =
+              prior &&
+              prior.speaker === speaker &&
+              Number.isFinite(priorTimeMs) &&
+              nowMs - priorTimeMs <= 1500;
+
+            const nextNonCoach = [...prevNonCoach];
+            if (shouldMerge && prior) {
+              const mergedText = `${prior.text} ${spokenText}`.replace(/\s+/g, " ").trim();
+              nextNonCoach[nextNonCoach.length - 1] = {
+                ...prior,
+                text: mergedText,
+                timestamp: nextLine.timestamp,
+              };
+            } else {
+              nextNonCoach.push(nextLine);
             }
-            return next;
+
+            // Only clinic turns should drive copilot suggestions.
+            if (speaker === "Clinic") {
+              const lastText = nextNonCoach.at(-1)?.text ?? "";
+              const looksComplete =
+                /[?!.]\s*$/.test(lastText) || lastText.length >= 25 || /\b(free|fee|fees|cost|price|charge)\b/i.test(lastText);
+
+              // Keep one active suggestion card at the end; update it after the clinic finishes (debounced).
+              const nextWithCoach = upsertInlineCoachSuggestion(nextNonCoach, COACH_LISTENING_TEXT);
+              if (looksComplete) queueCopilotRequest(nextWithCoach);
+              return nextWithCoach;
+            }
+
+            return nextNonCoach;
           });
         } catch (e) {
           console.error("Error parsing Deepgram stereo transcript:", e);
@@ -1391,39 +1483,82 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     }
   };
 
+  // Copilot request debouncing & stale-response protection
+  const copilotRequestSeqRef = useRef(0);
+  const copilotAbortControllerRef = useRef<AbortController | null>(null);
+  const copilotDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingCopilotConversationRef = useRef<TranscriptLine[] | null>(null);
+  const copilotSuggestionHistoryRef = useRef<string[]>([]);
+
+  function queueCopilotRequest(conversation: TranscriptLine[]) {
+    pendingCopilotConversationRef.current = conversation;
+    if (copilotDebounceTimerRef.current) clearTimeout(copilotDebounceTimerRef.current);
+    copilotDebounceTimerRef.current = setTimeout(() => {
+      const convo = pendingCopilotConversationRef.current;
+      if (!convo) return;
+      void requestManualCopilot(convo);
+    }, 900);
+  }
+
   const requestManualCopilot = async (conversation: TranscriptLine[]) => {
     if (!activeClinic) return;
+
+    const requestId = (copilotRequestSeqRef.current += 1);
+    copilotAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    copilotAbortControllerRef.current = controller;
+
     setCopilotLoading(true);
     setTranscript((prev) => upsertInlineCoachSuggestion(prev, COACH_DRAFTING_TEXT));
+
     try {
       const spokenOnly = utteranceTranscript(conversation);
+      const lastClinicText = spokenOnly.filter((l) => l.speaker === "Clinic").at(-1)?.text ?? "";
+      const transcriptNotes = spokenOnly.slice(-14).map((line) => `${line.speaker}: ${line.text}`).join("\n");
+
       const response = await fetch("/api/copilot/suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           clinicName: activeClinic.name,
           clinicContext: `${activeClinic.city ?? ""}, ${activeClinic.state ?? ""}. Services: ${(activeClinic.services ?? []).join(", ")}`,
-          transcript: spokenOnly.map((line) => `${line.speaker}: ${line.text}`).join("\n"),
-          question: "What should Jamil say next to move this clinic toward a free verified directory listing?",
+          stage: activeStage,
+          transcript: transcriptNotes,
+          question: lastClinicText,
+          qualificationSummary: QUALIFICATION_CHECKLIST.map((q) => `${q.id}:${qualification[q.id] ? "YES" : "NO"}`).join(", "),
+          missingQualification: QUALIFICATION_CHECKLIST.filter((q) => !qualification[q.id]).map((q) => q.label).join("; "),
+          detectedObjections: expandedObjection ? expandedObjection : objectionGuidance ?? "",
+          // With one active inline coach card, we still want recent suggestions to discourage repetition.
+          previousSuggestions: copilotSuggestionHistoryRef.current.slice(-3).join("\n"),
         }),
       });
+
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Copilot failed.");
       const suggestion = typeof payload.suggestion === "string" ? payload.suggestion : "";
+
+      // Ignore stale responses if a newer request started.
+      if (requestId !== copilotRequestSeqRef.current) return;
+
       setCopilotSuggestion(suggestion);
       setCopilotSource(payload.source === "field_guide" ? "field_guide" : "ai");
       if (suggestion) {
+        copilotSuggestionHistoryRef.current = [...copilotSuggestionHistoryRef.current.slice(-3), suggestion];
         setTranscript((prev) => upsertInlineCoachSuggestion(prev, suggestion));
       }
     } catch (error) {
+      if (requestId !== copilotRequestSeqRef.current) return;
+
       const latestClinicReply = utteranceTranscript(conversation).at(-1)?.text ?? "";
       const fallback = manualFieldGuideResponse(latestClinicReply);
       setCopilotSuggestion(fallback);
       setCopilotSource("field_guide");
+      copilotSuggestionHistoryRef.current = [...copilotSuggestionHistoryRef.current.slice(-3), fallback];
       setTranscript((prev) => upsertInlineCoachSuggestion(prev, fallback));
       toast.info("Using the local field guide while the AI coaching provider is unavailable.");
     } finally {
-      setCopilotLoading(false);
+      if (requestId === copilotRequestSeqRef.current) setCopilotLoading(false);
     }
   };
 
@@ -2005,18 +2140,27 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     );
   }, [clinics, searchQuery]);
 
+  // During an active call, collapse everything except transcript + controls
+  // so the founder can read coach replies without visual noise.
+  const isLiveFocus = ["configuring", "dialing", "ringing", "connected", "on_hold"].includes(callState);
+
   return (
-    <div className="space-y-4">
-      {/* HEADER SECTION */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b pb-4">
+    <div className={`${isLiveFocus ? "min-h-[calc(100vh-6rem)] flex flex-col gap-2" : "space-y-4"}`}>
+      {/* HEADER SECTION — compact while on a call */}
+      <div className={`flex flex-col md:flex-row items-start md:items-center justify-between gap-3 border-b ${isLiveFocus ? "pb-2" : "pb-4"}`}>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Founder Calling Cockpit</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Dial clinics in-browser via Telnyx while Deepgram transcribes and the silent AI coach tells you what to say next
-          </p>
+          <h1 className={`font-bold tracking-tight ${isLiveFocus ? "text-lg" : "text-2xl"}`}>
+            {isLiveFocus ? (isPracticeMode ? "Simulation Call" : "Live Call") : "Founder Calling Cockpit"}
+          </h1>
+          {!isLiveFocus && (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Dial clinics in-browser via Telnyx while Deepgram transcribes and the silent AI coach tells you what to say next
+            </p>
+          )}
         </div>
 
         {/* Operating Modes Selectors */}
+        {!isLiveFocus && (
         <div className="flex items-center gap-3 bg-card border rounded-lg px-3 py-1.5 shadow-sm">
           <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
             Mode Select:
@@ -2060,9 +2204,12 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             </button>
           </div>
         </div>
+        )}
       </div>
 
-      {/* MODE LABEL WATERMARKS */}
+      {/* MODE LABEL + METRICS — hide while focused on a live call */}
+      {!isLiveFocus && (
+        <>
       <div className={`p-2.5 rounded-lg border text-center text-xs font-bold uppercase tracking-widest transition-colors ${
         isPracticeMode
           ? "bg-indigo-50 border-indigo-200 text-indigo-800"
@@ -2073,7 +2220,6 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           : "LIVE — TELNYX SOFTPHONE · REAL CLINIC · SILENT AI COACH"}
       </div>
 
-      {/* PERFORMANCE ANALYTICS BAR */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <MetricCard label="Total Live Calls" value={analyticsMetrics.count} icon={PhoneCall} tone="default" hint="Simulation calls excluded" />
         <MetricCard label="Answer Rate" value={`${analyticsMetrics.answerRate}%`} icon={TrendingUp} tone="teal" hint="Calls connected" />
@@ -2081,6 +2227,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         <MetricCard label="Listing Permission" value={`${analyticsMetrics.permRate}%`} icon={Award} tone="green" hint="Of conversations" />
         <MetricCard label="Avg Duration" value={analyticsMetrics.avgDuration} icon={Clock} tone="amber" hint="Average call time" />
       </div>
+        </>
+      )}
 
       {/* AUDIO SETUP TEST COMPONENT */}
       {audioTestingOpen && (
@@ -2194,6 +2342,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       )}
 
       {/* MOBILE SCREEN NAVIGATION TABS */}
+      {!isLiveFocus && (
       <div className="flex lg:hidden border-b pb-1 gap-1">
         <Button variant={mobileTab === "dialer" ? "default" : "ghost"} size="sm" className="flex-1 text-xs" onClick={() => setMobileTab("dialer")}>
           Dialer / Profile
@@ -2205,11 +2354,13 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           Log / Outcome
         </Button>
       </div>
+      )}
 
       {/* MAIN LAYOUT GRID */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div className={`grid grid-cols-1 ${isLiveFocus ? "gap-2 lg:grid-cols-1 flex-1 min-h-0" : "gap-4 lg:grid-cols-12"}`}>
         
-        {/* LEFT COLUMN: Queue & History List */}
+        {/* LEFT COLUMN: Queue & History List — hidden during live focus */}
+        {!isLiveFocus && (
         <Card className="lg:col-span-3 p-0 flex flex-col h-[65vh] lg:h-[calc(100vh-320px)] overflow-hidden shrink-0">
           <div className="border-b px-3 py-2 flex items-center justify-between bg-muted/20 shrink-0">
             <div className="flex items-center gap-1">
@@ -2302,9 +2453,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             )}
           </div>
         </Card>
+        )}
 
         {/* CENTER COLUMN: Dialer, Configs, Live transcript */}
-        <div className={`lg:col-span-6 flex flex-col gap-4 ${mobileTab !== "dialer" ? "hidden lg:flex" : ""}`}>
+        <div className={`flex flex-col min-h-0 ${isLiveFocus ? "gap-2 lg:col-span-1 flex-1" : "gap-4 lg:col-span-6"} ${!isLiveFocus && mobileTab !== "dialer" ? "hidden lg:flex" : ""}`}>
 
           {callState === "idle" && activeClinic && (
             <Card className={`p-4 ${isPracticeMode ? "border-indigo-200 bg-indigo-50/40" : "border-emerald-200 bg-emerald-50/40"}`}>
@@ -2426,8 +2578,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             </Card>
           )}
 
-          {/* ACTIVE CLINIC INFORMATION PROFILE */}
-          {activeClinic ? (
+          {/* ACTIVE CLINIC INFORMATION PROFILE — hidden during live focus */}
+          {!isLiveFocus && (activeClinic ? (
             <Card className="p-4 flex flex-col gap-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
@@ -2540,19 +2692,21 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               <Building2 className="size-10 text-muted-foreground mb-2" />
               <p className="text-muted-foreground">Select a clinic from the queue to start.</p>
             </Card>
-          )}
+          ))}
 
-          {/* DOCK DIALER CONSOLE CONTROLLER */}
+          {/* DOCK DIALER — compact bar during live focus */}
           {activeClinic && (
-            <Card className={`text-white p-4 shadow-xl flex flex-col gap-4 relative overflow-hidden transition-colors ${
-              isPracticeMode ? "bg-slate-900 border-slate-950" : "bg-emerald-950 border-emerald-950"
-            }`}>
+            <Card className={`text-white shadow-xl flex flex-col relative overflow-hidden transition-colors shrink-0 ${
+              isLiveFocus ? "p-2.5 gap-2" : "p-4 gap-4"
+            } ${isPracticeMode ? "bg-slate-900 border-slate-950" : "bg-emerald-950 border-emerald-950"}`}>
               <div className="absolute inset-0 bg-radial-gradient from-slate-800 to-slate-900 opacity-50 z-0 pointer-events-none" />
-              <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="relative z-10 flex flex-row items-center justify-between gap-3">
                 
                 {/* Caller identity status indicator */}
-                <div className="flex items-center gap-3">
-                  <div className={`size-12 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                    isLiveFocus ? "size-9" : "size-12"
+                  } ${
                     callState === "connected"
                       ? "border-emerald-500 bg-emerald-500/10 text-emerald-400 animate-pulse"
                       : callState === "dialing" || callState === "ringing"
@@ -2561,32 +2715,58 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                           ? "border-amber-400 bg-amber-400/10 text-amber-400"
                           : "border-slate-700 bg-slate-800 text-slate-400"
                   }`}>
-                    <PhoneOutgoing className="size-6" />
+                    <PhoneOutgoing className={isLiveFocus ? "size-4" : "size-6"} />
                   </div>
-                  <div className="text-center md:text-left">
-                    <div className="flex items-center gap-1.5 justify-center md:justify-start">
-                      <span className="text-xs font-bold tracking-wide uppercase">
-                        {isPracticeMode ? "SIMULATION — AI CLINIC" : "LIVE — TELNYX SOFTPHONE"}
+                  <div className="text-left min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`font-bold tracking-wide uppercase truncate ${isLiveFocus ? "text-[10px]" : "text-xs"}`}>
+                        {isPracticeMode ? "SIMULATION" : "LIVE"} · {activeClinic.name}
                       </span>
-                      <span className={`size-2 rounded-full ${
+                      <span className={`size-2 rounded-full shrink-0 ${
                         callState === "connected" ? "bg-emerald-500" : callState === "idle" ? "bg-slate-500" : "bg-amber-500"
                       }`} />
                     </div>
-                    <p className="text-sm font-semibold tracking-wider font-mono mt-0.5">
-                      {isPracticeMode ? `${activeClinic.name} (AI)` : formatPhone(activeClinic.primaryPhone)}
-                    </p>
+                    {!isLiveFocus && (
+                      <p className="text-sm font-semibold tracking-wider font-mono mt-0.5">
+                        {isPracticeMode ? `${activeClinic.name} (AI)` : formatPhone(activeClinic.primaryPhone)}
+                      </p>
+                    )}
                   </div>
                 </div>
 
                 {/* Call Timer counter */}
                 {(callState === "connected" || callState === "on_hold" || callState === "ended") && (
-                  <div className="font-mono text-3xl font-bold tracking-widest text-slate-100 bg-slate-800/80 px-4 py-1.5 rounded-lg border border-slate-700 shadow-inner">
+                  <div className={`font-mono font-bold tracking-widest text-slate-100 bg-slate-800/80 rounded-lg border border-slate-700 shadow-inner shrink-0 ${
+                    isLiveFocus ? "text-lg px-3 py-1" : "text-3xl px-4 py-1.5"
+                  }`}>
                     {formatDuration(callDuration)}
                   </div>
                 )}
 
                 {/* Dial controller actions */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {isLiveFocus && callState !== "idle" && callState !== "ended" && callState !== "failed" && callState !== "provider_unavailable" && (
+                    <>
+                      <button
+                        onClick={toggleMute}
+                        title={muted ? "Unmute" : "Mute"}
+                        className={`size-9 rounded-lg flex items-center justify-center hover:bg-slate-800 transition-colors ${
+                          muted ? "text-rose-400 bg-rose-500/10" : "text-slate-300"
+                        }`}
+                      >
+                        {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+                      </button>
+                      <button
+                        onClick={toggleSpeaker}
+                        title="Speaker"
+                        className={`size-9 rounded-lg flex items-center justify-center hover:bg-slate-800 transition-colors ${
+                          speakerEnabled ? "text-emerald-400 bg-emerald-500/10" : "text-slate-300"
+                        }`}
+                      >
+                        {speakerEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+                      </button>
+                    </>
+                  )}
                   {["idle", "ended", "failed", "provider_unavailable"].includes(callState) ? (
                     isPracticeMode ? (
                       <Button
@@ -2607,7 +2787,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   ) : (
                     <Button
                       onClick={endCall}
-                      className="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-sm px-6 h-11 rounded-lg flex items-center gap-2 shadow-lg"
+                      className={`bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg flex items-center gap-2 shadow-lg ${
+                        isLiveFocus ? "text-xs px-3 h-9" : "text-sm px-6 h-11"
+                      }`}
                     >
                       <PhoneOff className="size-4" /> Hang Up
                     </Button>
@@ -2615,8 +2797,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 </div>
               </div>
 
-              {/* Call active controls layout */}
-              {callState !== "idle" && callState !== "ended" && callState !== "failed" && callState !== "provider_unavailable" && (
+              {/* Full controls only when not in live focus */}
+              {!isLiveFocus && callState !== "idle" && callState !== "ended" && callState !== "failed" && callState !== "provider_unavailable" && (
                 <div className="relative z-10 grid gap-2 border-t border-slate-800 pt-3 text-slate-300 grid-cols-6">
                   <button
                     onClick={toggleMute}
@@ -2686,7 +2868,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               )}
 
               {/* Collapsible Keypad */}
-              {dialPadOpen && callState !== "ended" && (
+              {!isLiveFocus && dialPadOpen && callState !== "ended" && (
                 <div className="relative z-10 grid grid-cols-3 gap-2 max-w-[180px] mx-auto bg-slate-800 border border-slate-700 rounded-lg p-2.5 mt-2 animate-in fade-in-20 duration-150">
                   {["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"].map((key) => (
                     <button
@@ -2707,19 +2889,26 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             </Card>
           )}
 
-          {/* SPEAKER-SEPARATED TRANSCRIPT PANEL (JAMIL VS CLINIC) */}
+          {/* SPEAKER-SEPARATED TRANSCRIPT — fills viewport during live focus */}
           {callState !== "idle" && (
-            <Card className="flex-1 flex flex-col p-0 min-h-[320px] max-h-[390px] overflow-hidden">
-              <div className="px-4 py-3 border-b bg-muted/20 flex items-center justify-between shrink-0">
+            <Card className={`flex-1 flex flex-col p-0 overflow-hidden min-h-0 ${
+              isLiveFocus ? "min-h-[calc(100vh-11rem)]" : "min-h-[320px] max-h-[390px]"
+            }`}>
+              <div className={`border-b bg-muted/20 flex items-center justify-between shrink-0 ${isLiveFocus ? "px-4 py-2" : "px-4 py-3"}`}>
                 <span className="text-sm font-bold flex items-center gap-1.5">
-                  <Activity className="size-4 text-emerald-500 animate-pulse" /> Live Call Transcript
+                  <Activity className="size-4 text-emerald-500 animate-pulse" /> Live Transcript
+                  {isLiveFocus && activeStage && (
+                    <Badge variant="outline" className="ml-2 text-[10px] capitalize font-medium">
+                      Stage: {activeStage}
+                    </Badge>
+                  )}
                 </span>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" className="text-[10px] text-indigo-700 border-indigo-200 bg-indigo-50">
-                    Jamil (Operator)
+                    You
                   </Badge>
                   <Badge variant="outline" className="text-[10px] text-slate-700 border-slate-200 bg-slate-50">
-                    {isPracticeMode ? `AI ${PRACTICE_PERSONAS.find(p => p.id === practicePersona)?.role}` : "Clinic"}
+                    Clinic
                   </Badge>
                   <Badge variant="outline" className="text-[10px] text-amber-800 border-amber-300 bg-amber-50">
                     Coach
@@ -2728,7 +2917,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               </div>
 
               {/* Scrolling transcript turns */}
-              <div className="flex-1 overflow-y-auto nv-scroll p-4 bg-muted/5 space-y-3">
+              <div
+                ref={transcriptScrollRef}
+                onScroll={handleTranscriptScroll}
+                className={`flex-1 overflow-y-auto nv-scroll bg-muted/5 space-y-3 ${isLiveFocus ? "p-5" : "p-4"}`}
+              >
                 {transcript.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground text-xs p-6">
                     <Clock className="size-6 mb-1 text-slate-300 animate-pulse" />
@@ -2738,12 +2931,16 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   transcript.map((line, idx) => {
                     const isCoach = isCoachLine(line);
                     const isJamil = !isCoach && line.speaker === "Jamil";
-                    const isDrafting = isCoach && line.text === COACH_DRAFTING_TEXT;
+                    const isDrafting = isCoach && [COACH_DRAFTING_TEXT, COACH_LISTENING_TEXT].includes(line.text);
                     return (
                       <div
-                        key={idx}
-                        className={`flex flex-col max-w-[85%] ${
-                          isCoach ? "mr-auto items-start w-full max-w-[92%]" : isJamil ? "ml-auto items-end" : "mr-auto items-start"
+                        key={`${line.kind ?? "utterance"}-${line.speaker}-${line.timestamp}`}
+                        className={`flex flex-col ${
+                          isCoach
+                            ? "mr-auto items-start w-full max-w-[min(920px,96%)]"
+                            : isJamil
+                              ? "ml-auto items-end max-w-[min(720px,85%)]"
+                              : "mr-auto items-start max-w-[min(720px,85%)]"
                         }`}
                       >
                         <span
@@ -2754,7 +2951,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                           {isCoach ? "Coach · Say this next" : line.speaker}
                         </span>
                         <div
-                          className={`p-2.5 rounded-lg text-sm mt-0.5 leading-relaxed ${
+                          className={`rounded-lg mt-0.5 leading-relaxed ${
+                            isLiveFocus ? "p-3 text-[15px]" : "p-2.5 text-sm"
+                          } ${
                             isCoach
                               ? `border border-dashed border-amber-400/80 bg-amber-50 text-amber-950 rounded-tl-none ${
                                   isDrafting ? "italic text-amber-700/80" : ""
@@ -2777,10 +2976,19 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                     );
                   })
                 )}
+                {showNewMessages && newMessagesCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={jumpToTranscriptBottom}
+                    className="sticky bottom-3 mx-auto z-20 bg-background/95 backdrop-blur border rounded-full px-3 py-1 text-xs font-bold text-indigo-700 shadow-sm hover:bg-background"
+                  >
+                    New messages ↓ {newMessagesCount}
+                  </button>
+                )}
                 <div ref={transcriptEndRef} />
               </div>
 
-              {callState === "connected" && (
+              {callState === "connected" && !isLiveFocus && (
                 <form
                   className="border-t bg-background p-3 flex flex-col sm:flex-row gap-2"
                   onSubmit={(event) => {
@@ -2834,7 +3042,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           )}
         </div>
 
-        {/* RIGHT COLUMN: AI Copilot Coaching */}
+        {/* RIGHT COLUMN — hidden during live focus (coach is inline in transcript) */}
+        {!isLiveFocus && (
         <div className={`lg:col-span-3 flex flex-col gap-4 ${mobileTab !== "copilot" ? "hidden lg:flex" : ""}`}>
           
           {/* DYNAMIC TALK TRACK STAGE PROGRESS */}
@@ -3020,8 +3229,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             </Card>
           )}
         </div>
+        )}
 
-        {/* FULL-WIDTH OUTCOME ROW: aligned beneath the 3 + 6 + 3 cockpit */}
+        {/* FULL-WIDTH OUTCOME ROW — hidden during live focus */}
+        {!isLiveFocus && (
         <div className={`lg:col-span-12 grid grid-cols-1 lg:grid-cols-2 gap-4 ${mobileTab !== "notes" ? "hidden lg:grid" : ""}`}>
           
           {/* QUALIFICATION CHECKLIST */}
@@ -3235,6 +3446,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
             </Card>
           )}
         </div>
+        )}
       </div>
     </div>
   );
