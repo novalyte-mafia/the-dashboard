@@ -110,6 +110,7 @@ const ContentPerformanceView = lazy(() => import("@/components/admin/views/conte
 const AutomationOverviewView = lazy(() => import("@/components/admin/views/automation-overview").then((m) => ({ default: m.AutomationOverviewView })));
 const AutomationsView = lazy(() => import("@/components/admin/views/automations").then((m) => ({ default: m.AutomationsView })));
 const AiAssistantsView = lazy(() => import("@/components/admin/views/ai-assistants").then((m) => ({ default: m.AiAssistantsView })));
+const CallCopilotKnowledgeView = lazy(() => import("@/components/admin/views/call-copilot-knowledge").then((m) => ({ default: m.CallCopilotKnowledgeView })));
 const CallIntelligenceView = lazy(() => import("@/components/admin/views/call-intelligence").then((m) => ({ default: m.CallIntelligenceView })));
 const LeadScoringView = lazy(() => import("@/components/admin/views/lead-scoring").then((m) => ({ default: m.LeadScoringView })));
 const FailedJobsView = lazy(() => import("@/components/admin/views/failed-jobs").then((m) => ({ default: m.FailedJobsView })));
@@ -199,6 +200,7 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "automation-overview": AutomationOverviewView,
   "automations": AutomationsView,
   "ai-assistants": AiAssistantsView,
+  "call-copilot-knowledge": CallCopilotKnowledgeView,
   "call-intelligence": CallIntelligenceView,
   "lead-scoring": LeadScoringView,
   "failed-jobs": FailedJobsView,

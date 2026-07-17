@@ -13,7 +13,7 @@ import {
   Users, Mail, FileText, DollarSign, CreditCard, BarChart3, Globe2, ShieldCheck,
   Stethoscope, MapPin, Megaphone, Briefcase, ShoppingCart, PenTool, Cpu,
   Activity as ActivityIcon, Settings as SettingsIcon,
-  Menu, LogOut, ChevronDown, ChevronRight, type LucideIcon,
+  Menu, LogOut, ChevronDown, ChevronRight, BookOpen, type LucideIcon,
 } from "lucide-react";
 import { initials } from "@/lib/format";
 import { appConfig } from "@/config/app-config";
@@ -153,6 +153,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "automation-overview", label: "Automation Overview", icon: Cpu },
       { id: "automations", label: "Active Automations", icon: Cpu },
       { id: "ai-assistants", label: "AI Assistants", icon: Cpu },
+      { id: "call-copilot-knowledge", label: "Call Copilot Knowledge", icon: BookOpen },
       { id: "call-intelligence", label: "Call Intelligence", icon: PhoneCall },
       { id: "lead-scoring", label: "Lead Scoring", icon: BarChart3 },
       { id: "failed-jobs", label: "Failed Jobs", icon: ShieldCheck },

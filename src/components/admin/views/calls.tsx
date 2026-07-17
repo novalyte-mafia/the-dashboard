@@ -387,6 +387,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const [clinicFacts, setClinicFacts] = useState<string[]>([]);
   const [copilotWarning, setCopilotWarning] = useState<string | null>(null);
   const [copilotNextAction, setCopilotNextAction] = useState<string | null>(null);
+  const [copilotStructuredReason, setCopilotStructuredReason] = useState<string | null>(null);
+  const [copilotKnowledgeSources, setCopilotKnowledgeSources] = useState<Array<{ title: string; source: string; section: string }>>([]);
+  const [copilotGroundingStatus, setCopilotGroundingStatus] = useState<string | null>(null);
+  const lastRetrievedKnowledgeRef = useRef<unknown>(null);
 
   // Live voice metrics
   const [speakingPace, setSpeakingPace] = useState<string>("Good (130 WPM)");
@@ -1543,6 +1547,13 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
       setCopilotSuggestion(suggestion);
       setCopilotSource(payload.source === "field_guide" ? "field_guide" : "ai");
+      if (payload.structured) {
+        setCopilotStructuredReason(payload.structured.reason ?? null);
+        setCopilotNextAction(payload.structured.suggested_next_action ?? null);
+        setCopilotGroundingStatus(payload.structured.grounding_status ?? null);
+        setCopilotKnowledgeSources(Array.isArray(payload.structured.knowledge_sources) ? payload.structured.knowledge_sources : []);
+        lastRetrievedKnowledgeRef.current = payload.retrieval ?? null;
+      }
       if (suggestion) {
         copilotSuggestionHistoryRef.current = [...copilotSuggestionHistoryRef.current.slice(-3), suggestion];
         setTranscript((prev) => upsertInlineCoachSuggestion(prev, suggestion));
@@ -1560,6 +1571,24 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     } finally {
       if (requestId === copilotRequestSeqRef.current) setCopilotLoading(false);
     }
+  };
+
+  const submitCopilotFeedback = async (rating: string) => {
+    if (!copilotSuggestion) return;
+    await fetch("/api/copilot/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        callSessionId: callSessionId ?? undefined,
+        rating,
+        originalSuggestion: copilotSuggestion,
+        transcriptContext: utteranceTranscript(transcriptRef.current).slice(-8).map((l) => `${l.speaker}: ${l.text}`).join("\n"),
+        retrievedKnowledge: lastRetrievedKnowledgeRef.current,
+        callStage: activeStage,
+        objectionType: expandedObjection ?? objectionGuidance ?? undefined,
+      }),
+    }).catch(() => undefined);
+    toast.success("Feedback saved — thank you.");
   };
 
   const handleManualTranscriptInput = (text: string) => {
@@ -3149,6 +3178,42 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                       <Send className="size-3 text-muted-foreground" />
                     </Button>
                   </div>
+                </div>
+
+                {(copilotStructuredReason || copilotNextAction || copilotGroundingStatus) && (
+                  <details className="rounded-lg border border-indigo-100 bg-white/70 p-2.5">
+                    <summary className="cursor-pointer text-[10px] font-bold uppercase tracking-wide text-indigo-700">
+                      Why this suggestion · {copilotGroundingStatus ?? "grounded"}
+                    </summary>
+                    {copilotStructuredReason && <p className="mt-2 text-slate-700 leading-relaxed">{copilotStructuredReason}</p>}
+                    {copilotNextAction && <p className="mt-1 text-slate-600"><span className="font-semibold">Next:</span> {copilotNextAction}</p>}
+                    {copilotKnowledgeSources.length > 0 && (
+                      <ul className="mt-2 space-y-1 text-[10px] text-muted-foreground">
+                        {copilotKnowledgeSources.map((src, i) => (
+                          <li key={`${src.title}-${i}`}>• {src.title} — {src.source}{src.section ? ` · ${src.section}` : ""}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </details>
+                )}
+
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[
+                    { id: "helpful", label: "Helpful" },
+                    { id: "incorrect", label: "Incorrect" },
+                    { id: "too_long", label: "Too long" },
+                    { id: "repetitive", label: "Repetitive" },
+                    { id: "used_successfully", label: "Used it" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => void submitCopilotFeedback(item.id)}
+                      className="text-[10px] px-2 py-1 rounded-full border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-800 font-medium"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
                 </div>
 
                 {copilotQuestion && (
