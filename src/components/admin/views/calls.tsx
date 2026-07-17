@@ -672,22 +672,19 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     }, 1000);
   };
 
-  const playVoiceTest = () => {
+  const fallbackVoiceTest = () => {
     if (typeof window === "undefined" || !window.speechSynthesis) {
       toast.error("Speech Synthesis is not supported in this browser.");
+      setTestAudioPlaying(false);
       return;
     }
-    setTestAudioPlaying(true);
     window.speechSynthesis.cancel();
     if (speakerTestTimeoutRef.current) clearTimeout(speakerTestTimeoutRef.current);
     
     const utterance = new SpeechSynthesisUtterance("Hello Jamil. This is a test of the AI clinic voice. Can you hear me clearly?");
-    
     const voices = window.speechSynthesis.getVoices();
-    // Select selected voice name if any
     const personaObj = PRACTICE_PERSONAS.find(p => p.id === practicePersona);
     const voice = voices.find(v => v.name.includes(personaObj?.voiceName || "English")) || voices.find(v => v.lang.startsWith("en")) || voices[0];
-    
     if (voice) utterance.voice = voice;
     utterance.volume = 1.0;
     utterance.rate = 1.0;
@@ -704,20 +701,49 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     };
 
     utterance.onend = completeTest;
-
-    utterance.onerror = (event) => {
+    utterance.onerror = () => {
       if (completed) return;
       completed = true;
       if (speakerTestTimeoutRef.current) clearTimeout(speakerTestTimeoutRef.current);
       speakerTestTimeoutRef.current = null;
       setTestAudioPlaying(false);
-      toast.error(`Voice output check failed${event.error ? `: ${event.error}` : "."}`);
+      toast.error("Voice output check failed.");
     };
 
-    // Chromium can omit `onend` for system voices even though playback completed.
-    // Release the hardware-check deadlock after the expected sample duration.
     speakerTestTimeoutRef.current = setTimeout(completeTest, 5000);
     window.speechSynthesis.speak(utterance);
+  };
+
+  const playVoiceTest = async () => {
+    setTestAudioPlaying(true);
+    try {
+      const response = await fetch("/api/copilot/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "Hello Jamil. This is a test of the natural AI clinic voice. Can you hear me clearly?" }),
+      });
+      if (!response.ok) throw new Error("Aura TTS API request failed.");
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+
+      audio.onended = () => {
+        setTestAudioPlaying(false);
+        setSpeakerTestPassed(true);
+        toast.success("Voice output check completed.");
+      };
+
+      audio.onerror = () => {
+        setTestAudioPlaying(false);
+        toast.error("Audio playback error during test.");
+      };
+
+      await audio.play();
+    } catch (e) {
+      console.warn("TTS test check failed, falling back to browser synthesis:", e);
+      fallbackVoiceTest();
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -804,7 +830,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     }
   };
 
-  const speakPracticeText = (text: string) => {
+  const fallbackSpeechSynthesis = (text: string) => {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     setIsClinicSpeaking(true);
@@ -841,6 +867,51 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     };
 
     window.speechSynthesis.speak(utterance);
+  };
+
+  const speakPracticeText = async (text: string) => {
+    if (!text) return;
+    setIsClinicSpeaking(true);
+
+    // Speaker Mode Auto-Pause to prevent feedback echo loops
+    if (!isHeadphonesMode && mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      isListeningRef.current = false;
+      try { mediaRecorderRef.current.pause(); } catch (e) {}
+    }
+
+    try {
+      const response = await fetch("/api/copilot/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) throw new Error("Deepgram Aura TTS request failed.");
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      
+      audio.onended = () => {
+        setIsClinicSpeaking(false);
+        if (!isHeadphonesMode && mediaRecorderRef.current && mediaRecorderRef.current.state === "paused") {
+          isListeningRef.current = true;
+          try { mediaRecorderRef.current.resume(); } catch (e) {}
+        }
+      };
+
+      audio.onerror = () => {
+        setIsClinicSpeaking(false);
+        if (!isHeadphonesMode && mediaRecorderRef.current && mediaRecorderRef.current.state === "paused") {
+          isListeningRef.current = true;
+          try { mediaRecorderRef.current.resume(); } catch (e) {}
+        }
+      };
+
+      await audio.play();
+    } catch (err) {
+      console.warn("Deepgram TTS failed, falling back to browser synthesis:", err);
+      fallbackSpeechSynthesis(text);
+    }
   };
 
   const startSpeechRecognition = async () => {
