@@ -23,8 +23,11 @@ export function generateFieldGuideSuggestion(transcript: string) {
   if (reply.includes("what is novalyte") || reply.includes("who is novalyte") || reply.includes("novolyte")) {
     return "Novalyte AI is a men’s health technology platform that helps patients find verified clinics—we’re not a medical provider. Today I’m calling about your free directory listing, not a paid contract.";
   }
-  if (reply.includes("guarantee") || reply.includes("how many patients")) {
-    return "We don’t guarantee a specific patient volume—the free listing helps patients find you, and optional paid acquisition is separate if you ever want to explore it.";
+  if (reply.includes("guarantee") || reply.includes("how many patients") || reply.includes("bring us patients")) {
+    return "We don’t guarantee a specific patient volume—this call is only about your free directory listing so patients can find your clinic when they search.";
+  }
+  if (reply.includes("advertising") || reply.includes("paid lead") || reply.includes("selling")) {
+    return "No—this call isn’t about paid services or advertising. I’m only asking permission to include your clinic in our free verified directory and confirm a few public details.";
   }
   if (reply.includes("hipaa") || reply.includes("patient records")) {
     return "For the free listing we only need public clinic information—we don’t need access to patient records. I can follow up by email with our approved privacy overview if helpful.";

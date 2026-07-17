@@ -1,3 +1,4 @@
+import { sanitizeDirectoryOnlySuggestion, containsProhibitedCommercialLanguage } from "@/lib/calls/directory-only-guard";
 import type { CopilotStructuredResponse, RetrievedKnowledgeChunk } from "./types";
 
 const PROHIBITED_CLAIM_PATTERNS = [
@@ -54,6 +55,9 @@ export function buildFieldGuideStructuredResponse(
   stage?: string,
 ): CopilotStructuredResponse {
   const cleaned = sanitizeCompanyName(suggestion);
+  if (containsProhibitedCommercialLanguage(cleaned)) {
+    return buildFieldGuideStructuredResponse(sanitizeDirectoryOnlySuggestion(cleaned), chunks, stage);
+  }
   const validation = validateSuggestionAgainstKnowledge(cleaned, chunks);
   if (!validation.ok) return buildLowConfidenceResponse(chunks);
 

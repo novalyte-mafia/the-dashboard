@@ -8,6 +8,7 @@ import {
   validateSuggestionAgainstKnowledge,
 } from "@/lib/knowledge/guardrails";
 import { generateFieldGuideSuggestion } from "@/lib/providers/glm-field-guide";
+import { DIRECTORY_ONLY_COPILOT_RULES, sanitizeDirectoryOnlySuggestion, containsProhibitedCommercialLanguage } from "@/lib/calls/directory-only-guard";
 
 const GLM_URL = process.env.GLM_API_URL?.trim() || "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 
@@ -45,13 +46,12 @@ export async function generateKnowledgeAwareCopilot(input: {
   const apiKey = process.env.GLM_API_KEY?.trim();
   if (!apiKey) throw new Error("GLM_API_KEY is not configured.");
 
-  const systemPrompt = `You are the Novalyte AI live call strategist. Coach the human operator (Jamil) only.
-Rules:
+  const systemPrompt = `You are the Novalyte AI live call strategist. Coach the human operator (Jamil) only — Jamil speaks to the clinic; you never speak as the clinic.
+${DIRECTORY_ONLY_COPILOT_RULES}
+Additional rules:
 - Company name is always "Novalyte AI" (never Novolite, NovoLight, etc.)
-- First-call objective: free, permission-based directory verification — NOT aggressive paid sales
 - Answer the clinic's latest direct question BEFORE asking the next qualification question
 - Use ONLY the APPROVED BUSINESS KNOWLEDGE below — do not invent facts, stats, guarantees, HIPAA certs, or partnerships
-- Never guarantee patient volume, revenue, or outcomes
 - Keep suggested_response to ONE natural spoken sentence (max ~35 words)
 - Never repeat previousSuggestions verbatim
 - Return ONLY valid JSON with keys: suggested_response, response_type, call_stage, reason, knowledge_sources (array of {title, source, section}), suggested_next_action, confidence (0-1), grounding_status`;
@@ -95,7 +95,10 @@ Rules:
     return buildFieldGuideStructuredResponse(fallbackText, input.knowledgeChunks, input.stage);
   }
 
-  const suggested = sanitizeCompanyName(String(parsed.suggested_response).trim());
+  let suggested = sanitizeCompanyName(String(parsed.suggested_response).trim());
+  if (containsProhibitedCommercialLanguage(suggested)) {
+    suggested = sanitizeDirectoryOnlySuggestion(suggested);
+  }
   const validation = validateSuggestionAgainstKnowledge(suggested, input.knowledgeChunks);
   if (!validation.ok || !suggested) {
     return buildLowConfidenceResponse(input.knowledgeChunks);

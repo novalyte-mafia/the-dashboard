@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { useNav } from "@/components/admin/admin-app";
 import {
-  PageHeader, SectionCard, EmptyState, FilterBar, DataTable,
-  StatusBadge, type Column,
+  PageHeader, SectionCard, EmptyState, FilterBar,
+  StatusBadge,
 } from "@/components/admin/shared";
 import { Button } from "@/components/ui/button";
 import {
-  Phone, MessageSquare, Mail, Voicemail, ShieldQuestion, BookOpen, Copy, Check,
+  Phone, Mail, Voicemail, ShieldQuestion, BookOpen, Copy, Check,
   ChevronDown, ChevronRight, PhoneCall, Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -24,196 +24,239 @@ type CallScript = {
   name: string;
   description: string;
   category: string;
-  icon: any;
+  icon: typeof PhoneCall;
   tone: "teal" | "amber" | "violet" | "green" | "rose";
   whenToUse: string;
   sections: ScriptSection[];
   duration: string;
 };
 
+/**
+ * Directory-permission call scripts only.
+ * Do not mention paid acquisition, advertising, lead packages, or commercial offers.
+ */
 const SCRIPTS: CallScript[] = [
   {
-    id: "intro",
-    name: "Cold Intro — Clinic Owner",
-    description: "Opening 30 seconds for first contact with clinic owners / medical directors.",
+    id: "directory-opening",
+    name: "Opening — Directory Permission",
+    description: "First-contact opener: explain Novalyte AI and ask permission to list the clinic.",
     category: "Intro",
     icon: PhoneCall,
     tone: "teal",
-    whenToUse: "First outbound call to a clinic decision-maker",
-    duration: "30s",
+    whenToUse: "First outbound call — reach the person who manages the clinic listing",
+    duration: "45s",
     sections: [
       {
         heading: "Opening",
-        body: `Hi, this is Jamil Yakasai with Novalyte. I'm reaching out because we've been working with men's health clinics in [STATE] to bring them exclusive, qualified patient leads — without the typical ad-spend games.
+        body: `Hi, this is Jamil Yakasai with Novalyte AI. I'm calling about your clinic's free verified directory listing — not a paid service or sales pitch.
 
-I know you're busy — do you have 60 seconds for me to tell you why I called, and you can decide if it's worth continuing?`,
+Do you have a minute for me to explain what that means, and you can tell me if it's okay to continue?`,
       },
       {
-        heading: "Permission to continue",
-        body: `Great. The reason I called: we run patient-acquisition campaigns nationally for TRT, GLP-1, and hormone optimization. We route qualified, intent-verified patients directly to partner clinics — they only pay when a patient actually books.
+        heading: "Purpose",
+        body: `Novalyte AI maintains a verified directory so men searching for TRT and men's health care can find appropriate clinics. We'd like to include [CLINIC NAME] only with your permission.
 
-If I could show you 8-12 new qualified patients in your area next month, would that be worth a 20-minute conversation this week?`,
+The listing is free. I just need to confirm a few public details — phone, services, booking method — and whether we have permission to publish them.`,
       },
       {
-        heading: "If yes → book meeting",
-        body: `Perfect. I have Thursday at 2pm or Friday at 10am your time. Which works better?
-
-(If they hesitate) I'll send a calendar invite — what's the best email?`,
+        heading: "Permission ask",
+        body: `Would it be okay for us to include your clinic in the Novalyte AI verified directory after we confirm those details with you?`,
       },
     ],
   },
   {
-    id: "permission-to-list",
-    name: "Permission-to-List Pitch",
-    description: "Get permission to add clinic to Novalyte directory (free listing).",
+    id: "permission-granted",
+    name: "Permission Granted — Verification",
+    description: "Collect listing details after the clinic agrees.",
     category: "Directory",
     icon: BookOpen,
     tone: "violet",
-    whenToUse: "Once you've established rapport and want to add the clinic to the directory",
-    duration: "2 min",
+    whenToUse: "Clinic says yes to directory listing permission",
+    duration: "3 min",
     sections: [
       {
-        heading: "Pitch",
-        body: `One thing I'd love to do — even if you're not ready for paid leads — is add Summit Vitality to our national directory at no cost. It's a free listing that puts you in front of ~40K men/month searching for TRT and hormone care in Texas.
+        heading: "Thank + confirm scope",
+        body: `Thank you — I'll summarize what will appear publicly: clinic name, location, core services, hours, and how patients book.
 
-You'd keep 100% of the booking revenue, and it takes me about 10 minutes to set up with you on the phone. Are you open to that?`,
+You can review everything before anything goes live, and you can ask us to update or remove the listing anytime.`,
       },
       {
-        heading: "If yes → collect info",
-        body: `Great. I'll need:
-- Your services list (TRT, GLP-1, etc.)
-- Provider names + credentials
-- Hours + booking link
-- 2-3 clinic photos (you can email later)
+        heading: "Information to collect now",
+        body: `I'll confirm:
+- Public clinic phone and address
+- Core services (TRT, GLP-1, telehealth, etc.)
+- Booking URL or phone booking method
+- Whether you're accepting new patients
+- Best email for the verification follow-up
+- Name and role of the listing contact
 
-I'll send a quick intake form — should take 5 minutes to fill out.`,
+Provider photos and credentials can come later via a short intake form.`,
       },
       {
-        heading: "If no / hesitation",
-        body: `Totally understand. Two options:
-1. I send you a one-pager about the directory, you decide later
-2. We skip the directory and just talk about paid leads next time
-
-Which feels better?`,
+        heading: "Close",
+        body: `I'll send a verification summary to [EMAIL] today. Once you approve, we'll publish the listing. Is there anything you'd like changed before it goes live?`,
       },
     ],
   },
   {
-    id: "objection-budget",
-    name: "Objection Handling — No Budget",
-    description: "When clinic says they don't have budget for marketing.",
+    id: "objection-is-it-free",
+    name: "Objection — Is the listing free?",
+    description: "Answer cost and “catch” questions directly.",
     category: "Objections",
     icon: ShieldQuestion,
     tone: "amber",
-    whenToUse: "After pitch, if prospect cites budget constraints",
-    duration: "60s",
+    whenToUse: "Clinic asks about fees, cost, or what the catch is",
+    duration: "30s",
     sections: [
       {
-        heading: "Acknowledge + reframe",
-        body: `I appreciate you being upfront about budget — that's actually the right conversation to have.
+        heading: "Script",
+        body: `Yes — the verified directory listing is completely free. There is no charge to apply, verify your public details, or publish an approved profile.
 
-Here's the thing: we don't charge upfront ad spend. You pay a performance fee only when a patient books an appointment. So if we don't deliver patients, you don't pay.
-
-In other words — there's no budget risk. We're investing our ad dollars up front.`,
-      },
-      {
-        heading: "Anchor to current spend",
-        body: `Out of curiosity — what are you spending now on Google Ads or Facebook? Most clinics we work with are spending $4-8K/month with mixed results.
-
-We typically come in below that because we only bill on booked appointments, not clicks. Would it be worth comparing what you're paying now vs. our cost-per-booking?`,
-      },
-      {
-        heading: "If still no",
-        body: `Makes sense. Let's start with the free directory listing — zero cost, you keep 100% of bookings. Once you see the patient flow, we can revisit paid leads in 30 days.
-
-Fair?`,
+This call is only about permission to list those public details. There is no paid contract or obligation on today's call.`,
       },
     ],
   },
   {
-    id: "objection-existing-agency",
-    name: "Objection Handling — Already Has Agency",
-    description: "When clinic says they already work with a marketing agency.",
+    id: "objection-is-this-sales",
+    name: "Objection — Are you selling something?",
+    description: "Clarify this is directory permission only.",
     category: "Objections",
     icon: ShieldQuestion,
     tone: "amber",
-    whenToUse: "When prospect has existing marketing partner",
-    duration: "90s",
+    whenToUse: "Clinic asks if this is a sales or marketing call",
+    duration: "30s",
     sections: [
       {
-        heading: "Validate + differentiate",
-        body: `Got it — and I wouldn't expect you to fire them. Most of our partner clinics keep their existing agency for branding, social, and SEO.
+        heading: "Script",
+        body: `Fair question. This specific call is not a sales call — I'm only asking permission to include your clinic in our free verified directory and to confirm a few public listing details.
 
-We're different because we only do performance-based patient acquisition. We don't touch your brand or website. We just send you booked appointments.
-
-Think of us like an additional patient channel that runs alongside what you already have.`,
+There's no paid service or contract involved in what I'm asking today.`,
       },
+    ],
+  },
+  {
+    id: "objection-not-interested",
+    name: "Objection — Not interested",
+    description: "Respectful decline handling.",
+    category: "Objections",
+    icon: ShieldQuestion,
+    tone: "rose",
+    whenToUse: "Clinic declines or asks not to be called again",
+    duration: "30s",
+    sections: [
       {
-        heading: "Pilot offer",
-        body: `Here's what I'd propose: a 30-day pilot at reduced cost. We send you patients, you measure ROI. If we're not the best-performing channel by day 30, we shake hands and walk away.
+        heading: "Script",
+        body: `I understand — thank you for letting me know. There is no cost and no obligation for the directory listing.
 
-Worth trying alongside your current setup?`,
+Would you prefer I don't call again, or would a one-page email be helpful if you want to review it later? Either way, I appreciate your time.`,
+      },
+    ],
+  },
+  {
+    id: "objection-send-email",
+    name: "Objection — Send me an email",
+    description: "Capture contact and send directory overview.",
+    category: "Objections",
+    icon: Mail,
+    tone: "green",
+    whenToUse: "Clinic prefers email over phone",
+    duration: "45s",
+    sections: [
+      {
+        heading: "Script",
+        body: `Absolutely. Before I send it — what's the best email, and who manages the clinic's public listing or directory decisions?
+
+I'll send a one-page overview of the free verified listing and the verification steps. Would a brief follow-up call after you review be helpful, or email only?`,
+      },
+    ],
+  },
+  {
+    id: "objection-owner-unavailable",
+    name: "Objection — Owner / manager not available",
+    description: "Gatekeeper workflow.",
+    category: "Objections",
+    icon: ShieldQuestion,
+    tone: "amber",
+    whenToUse: "Front desk cannot grant listing permission",
+    duration: "45s",
+    sections: [
+      {
+        heading: "Script",
+        body: `Thank you. Who usually handles the clinic's public listing or website directory decisions?
+
+What's the best time to reach them, and may I send a brief verification email in the meantime? I won't publish anything without explicit permission.`,
+      },
+    ],
+  },
+  {
+    id: "objection-review-remove",
+    name: "Review, update, or remove listing",
+    description: "Answer control and privacy questions.",
+    category: "Directory",
+    icon: BookOpen,
+    tone: "violet",
+    whenToUse: "Clinic asks about reviewing, updating, or removing their listing",
+    duration: "30s",
+    sections: [
+      {
+        heading: "Script",
+        body: `Yes — you can review listing details before publication when you request it. Listings are permission-based only.
+
+If anything changes, you can ask us to update or remove your profile. We don't publish without your explicit permission.`,
       },
     ],
   },
   {
     id: "voicemail",
-    name: "Voicemail — 1st Attempt",
+    name: "Voicemail — Directory outreach",
     description: "Short voicemail for first unanswered call.",
     category: "Voicemail",
     icon: Voicemail,
     tone: "teal",
-    whenToUse: "First voicemail after no-answer on cold outreach",
+    whenToUse: "First voicemail after no-answer",
     duration: "20s",
     sections: [
       {
         heading: "Script",
-        body: `Hi [FIRST NAME], this is Jamil Yakasai with Novalyte. I'm reaching out because we help men's health clinics in [STATE] get exclusive, qualified patient leads on a performance basis.
+        body: `Hi [FIRST NAME], this is Jamil Yakasai with Novalyte AI. I'm calling about your clinic's free verified directory listing — just permission to include your public clinic details.
 
-I'll try you again in a couple of days. If you'd like to chat sooner, my direct line is [PHONE]. Thanks — talk soon.`,
+I'll try again in a couple of days, or you can reach me at [PHONE]. Thanks.`,
       },
     ],
   },
   {
     id: "voicemail-followup",
-    name: "Voicemail — 3rd Attempt (Final)",
-    description: "Breakup voicemail after multiple unanswered attempts.",
+    name: "Voicemail — Final attempt",
+    description: "Polite close after multiple unanswered attempts.",
     category: "Voicemail",
     icon: Voicemail,
     tone: "rose",
-    whenToUse: "Final touch after 2-3 unanswered calls — breakup style",
-    duration: "25s",
+    whenToUse: "Final touch after 2–3 unanswered calls",
+    duration: "20s",
     sections: [
       {
         heading: "Script",
-        body: `Hi [FIRST NAME], Jamil Yakasai from Novalyte — this is my third message. I'll take that as a sign the timing isn't right.
+        body: `Hi [FIRST NAME], Jamil Yakasai from Novalyte AI — this is my last message about your free directory listing.
 
-I'll close out your file for now. If anything changes and you want to revisit getting qualified TRT and GLP-1 patients in [STATE], my direct line is [PHONE].
-
-Wishing you and the clinic the best. Take care.`,
+I'll close your file for now. If you'd like to be included later, my line is [PHONE]. Wishing you and the clinic the best.`,
       },
     ],
   },
   {
-    id: "post-meeting-followup",
-    name: "Post-Meeting Follow-Up",
-    description: "Call to send recap + proposal after a discovery meeting.",
+    id: "followup-verification",
+    name: "Follow-Up — Verification email sent",
+    description: "After sending listing verification summary.",
     category: "Follow-Up",
     icon: Mail,
     tone: "green",
-    whenToUse: "Within 24 hours of a discovery call",
-    duration: "60s",
+    whenToUse: "Within 2–3 days of sending verification materials",
+    duration: "45s",
     sections: [
       {
-        heading: "Opening",
-        body: `Hey [FIRST NAME], Jamil with Novalyte. Great conversation yesterday — really enjoyed learning about your clinic's growth plans.
+        heading: "Script",
+        body: `Hi [FIRST NAME], Jamil with Novalyte AI. I sent the directory verification summary for [CLINIC NAME] — wanted to see if you had a chance to review it.
 
-I'm sending over the recap email and proposal today. Two quick things:
-
-1. I'll include the patient-demand data we discussed for [CITY]
-2. I'll attach a draft pilot agreement — no signature required yet
-
-When would be a good time to review it together? I have [DAY] morning or [DAY] afternoon open.`,
+Happy to adjust any public details before publication. Do you have permission for us to proceed with the listing, or would you like changes first?`,
       },
     ],
   },
@@ -249,54 +292,21 @@ export function CallScriptsView() {
     setTimeout(() => setCopiedId(null), 2000);
   }
 
-  const columns: Column<CallScript>[] = [
-    {
-      key: "name",
-      header: "Script",
-      render: (s) => (
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <s.icon className="size-4 text-muted-foreground" />
-            <p className="font-medium truncate">{s.name}</p>
-          </div>
-          <p className="text-xs text-muted-foreground truncate mt-0.5">{s.description}</p>
-        </div>
-      ),
-    },
-    {
-      key: "category",
-      header: "Category",
-      render: (s) => <StatusBadge label={s.category} color="slate" />,
-      sortValue: (s) => s.category,
-      hideOnMobile: true,
-    },
-    {
-      key: "duration",
-      header: "Duration",
-      render: (s) => <span className="text-sm text-muted-foreground tabular-nums">{s.duration}</span>,
-      sortValue: (s) => s.duration,
-      hideOnMobile: true,
-    },
-    {
-      key: "sections",
-      header: "Sections",
-      render: (s) => <span className="text-sm text-muted-foreground tabular-nums">{s.sections.length}</span>,
-      sortValue: (s) => s.sections.length,
-      hideOnMobile: true,
-    },
-  ];
-
   return (
     <div>
       <PageHeader
         title="Call Scripts"
-        description="Reusable scripts for cold outreach, objection handling, and follow-ups"
+        description="Directory-permission outreach scripts — free listing verification only (no paid offers)"
         action={
-          <Button variant="outline" onClick={() => navigate("call-queue")}>
-            <Phone className="size-4" /> Open call queue
+          <Button variant="outline" onClick={() => navigate("calls")}>
+            <Phone className="size-4" /> Open calling cockpit
           </Button>
         }
       />
+
+      <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50/80 px-4 py-3 text-sm text-teal-900">
+        <strong>Current campaign rule:</strong> These calls request permission for the free Novalyte AI directory listing and verify public clinic details. Do not mention paid acquisition, advertising, or lead packages on these calls.
+      </div>
 
       <FilterBar
         search={search}
@@ -313,7 +323,6 @@ export function CallScriptsView() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Script list */}
         <div className="lg:col-span-1">
           <SectionCard title="Script Library" description={`${filtered.length} scripts`} bodyClassName="p-0">
             {filtered.length === 0 ? (
@@ -342,7 +351,6 @@ export function CallScriptsView() {
           </SectionCard>
         </div>
 
-        {/* Script detail */}
         <div className="lg:col-span-2">
           {filtered.length === 0 ? (
             <SectionCard>

@@ -34,13 +34,25 @@ create table if not exists copilot_knowledge_entries (
   is_enabled boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  search_document tsvector generated always as (
-    to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, '') || ' ' || array_to_string(coalesce(keywords, '{}'), ' '))
-  ) stored
+  search_document tsvector
 );
 
 create index if not exists copilot_knowledge_entries_search_idx
   on copilot_knowledge_entries using gin (search_document);
+
+create or replace function copilot_knowledge_entries_search_document_update()
+returns trigger language plpgsql as $$
+begin
+  new.search_document := to_tsvector('english',
+    coalesce(new.title, '') || ' ' || coalesce(new.content, '') || ' ' || array_to_string(coalesce(new.keywords, '{}'), ' ')
+  );
+  return new;
+end;
+$$;
+
+create trigger copilot_knowledge_entries_search_document_trg
+  before insert or update on copilot_knowledge_entries
+  for each row execute function copilot_knowledge_entries_search_document_update();
 create index if not exists copilot_knowledge_entries_category_idx
   on copilot_knowledge_entries (category);
 create index if not exists copilot_knowledge_entries_enabled_idx

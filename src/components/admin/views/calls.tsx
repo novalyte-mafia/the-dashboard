@@ -68,6 +68,11 @@ import { formatPhone, localTime, isWithinCallingHours, relativeTime, fullName } 
 import { toast } from "sonner";
 import type { Clinic, CallSession, CallState, CallOutcome } from "@/types";
 import { TelephonySimulator } from "@/lib/telephony-simulator";
+import {
+  DEFAULT_CONSENT_SCRIPT,
+  inferConsentRequirement,
+  type ConsentStatus,
+} from "@/lib/calls/recording-consent";
 
 // ---------------------------------------------------------------------------
 // PRACTICE PERSONAS
@@ -1322,6 +1327,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       merger.connect(dest);
       const stereoStream = dest.stream;
 
+      // Archival recording (mandatory for official live calls) — parallel to Deepgram stream
+      if (isLiveMode) startArchivalRecording(stereoStream);
+
       // 4. Connect Deepgram WebSocket with multichannel=true
       const queryParams = new URLSearchParams({
         model: "nova-2",
@@ -1493,6 +1501,25 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const copilotDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingCopilotConversationRef = useRef<TranscriptLine[] | null>(null);
   const copilotSuggestionHistoryRef = useRef<string[]>([]);
+  const copilotSuggestionsLogRef = useRef<Array<{ suggested_response: string; was_used?: boolean }>>([]);
+
+  // Recording & consent (mandatory for live official calls)
+  type LiveRecordingStatus =
+    | "not_started" | "initializing" | "active" | "paused" | "failed" | "audio_unavailable"
+    | "consent_required" | "uploading" | "uploaded" | "local_backup_saved"
+    | "cloud_save_failed" | "local_save_failed" | "finalized";
+  const [recordingStatus, setRecordingStatus] = useState<LiveRecordingStatus>("not_started");
+  const [consentStatus, setConsentStatus] = useState<ConsentStatus>("pending");
+  const [consentModalOpen, setConsentModalOpen] = useState(false);
+  const [consentScript, setConsentScript] = useState(DEFAULT_CONSENT_SCRIPT);
+  const [consentJurisdiction, setConsentJurisdiction] = useState("unknown");
+  const [consentRequiresExplicit, setConsentRequiresExplicit] = useState(false);
+  const [recordingBlocked, setRecordingBlocked] = useState(false);
+  const callIdempotencyKeyRef = useRef<string | null>(null);
+  const archivalRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const stereoStreamRef = useRef<MediaStream | null>(null);
+  const recordingMimeTypeRef = useRef("audio/webm");
 
   function queueCopilotRequest(conversation: TranscriptLine[]) {
     pendingCopilotConversationRef.current = conversation;
@@ -1556,6 +1583,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       }
       if (suggestion) {
         copilotSuggestionHistoryRef.current = [...copilotSuggestionHistoryRef.current.slice(-3), suggestion];
+        copilotSuggestionsLogRef.current = [...copilotSuggestionsLogRef.current, { suggested_response: suggestion }];
         setTranscript((prev) => upsertInlineCoachSuggestion(prev, suggestion));
       }
     } catch (error) {
@@ -1669,11 +1697,13 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
   async function createCallSession(environment: "live" | "practice") {
     if (!activeClinic) return null;
+    const idempotencyKey = callIdempotencyKeyRef.current ?? `${activeClinic.id}-${Date.now()}`;
+    callIdempotencyKeyRef.current = idempotencyKey;
     try {
       const response = await fetch("/api/telephony/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clinicId: activeClinic.id, callEnvironment: environment }),
+        body: JSON.stringify({ clinicId: activeClinic.id, callEnvironment: environment, idempotencyKey }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.callSessionId) {
@@ -1686,6 +1716,180 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       console.warn("Call session create failed:", error);
       return null;
     }
+  }
+
+  async function recordConsentEvent(status: ConsentStatus, wording?: string, sessionId?: string) {
+    const sid = sessionId ?? callSessionId;
+    if (!sid) return;
+    setConsentStatus(status);
+    await fetch(`/api/calls/${sid}/consent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        consentStatus: status,
+        jurisdiction: consentJurisdiction,
+        consentScript,
+        consentWording: wording,
+      }),
+    }).catch(() => undefined);
+  }
+
+  function startArchivalRecording(stereoStream: MediaStream) {
+    try {
+      setRecordingStatus("initializing");
+      recordingChunksRef.current = [];
+      stereoStreamRef.current = stereoStream;
+      let mimeType = "audio/webm";
+      if (typeof MediaRecorder !== "undefined") {
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = "audio/ogg";
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = "";
+      }
+      recordingMimeTypeRef.current = mimeType || "audio/webm";
+      const recorder = new MediaRecorder(stereoStream, mimeType ? { mimeType } : undefined);
+      archivalRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        setRecordingStatus("failed");
+        setRecordingBlocked(true);
+        toast.error("Call recording failed to start. Official calls require recording.");
+      };
+      recorder.onstart = () => setRecordingStatus("active");
+      recorder.start(1000);
+    } catch {
+      setRecordingStatus("failed");
+      setRecordingBlocked(true);
+      toast.error("Could not initialize call recording.");
+    }
+  }
+
+  function stopArchivalRecording() {
+    const recorder = archivalRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return Promise.resolve<Blob | null>(null);
+    return new Promise<Blob | null>((resolve) => {
+      recorder.onstop = () => {
+        const blob = recordingChunksRef.current.length
+          ? new Blob(recordingChunksRef.current, { type: recordingMimeTypeRef.current })
+          : null;
+        resolve(blob);
+      };
+      try {
+        recorder.stop();
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  async function finalizeCallRecordingAndAnalysis() {
+    if (!callSessionId || !isLiveMode) return;
+    setRecordingStatus("uploading");
+    const audioBlob = await stopArchivalRecording();
+    const finalTranscript = utteranceTranscript(transcriptRef.current);
+    let analysisPayload: Record<string, unknown> | null = null;
+    let nextRecordingStatus: LiveRecordingStatus = "finalized";
+
+    if (audioBlob && audioBlob.size > 0) {
+      const form = new FormData();
+      form.append("audio", audioBlob, "call-recording.webm");
+      form.append("idempotencyKey", callIdempotencyKeyRef.current ?? `${callSessionId}-primary`);
+      form.append("fileType", recordingMimeTypeRef.current);
+      form.append("audioDurationSec", String(callDurationRef.current));
+      form.append("consentStatus", consentStatus);
+
+      const uploadRes = await fetch(`/api/calls/${callSessionId}/recording`, { method: "POST", body: form });
+      nextRecordingStatus = uploadRes.ok ? "uploaded" : "cloud_save_failed";
+      if (!uploadRes.ok) toast.error("Cloud recording upload failed — local backup will be attempted.");
+
+      const backupForm = new FormData();
+      backupForm.append("audio", audioBlob, "audio.webm");
+      backupForm.append("metadata", JSON.stringify({
+        transcript: finalTranscript,
+        consentStatus,
+        cloudUploadStatus: uploadRes.ok ? "uploaded" : "cloud_save_failed",
+        metadata: { clinicId: activeClinic?.id, durationSec: callDurationRef.current },
+      }));
+      const backupRes = await fetch(`/api/calls/${callSessionId}/local-backup`, { method: "POST", body: backupForm });
+      if (backupRes.ok && uploadRes.ok) nextRecordingStatus = "local_backup_saved";
+      else if (!backupRes.ok && !uploadRes.ok) nextRecordingStatus = "local_save_failed";
+    } else {
+      nextRecordingStatus = "audio_unavailable";
+      toast.error("No audio captured for this call.");
+    }
+
+    setRecordingStatus(nextRecordingStatus);
+
+    const analyzeRes = await fetch(`/api/calls/${callSessionId}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        transcript: finalTranscript,
+        durationSec: callDurationRef.current,
+        consentStatus,
+        recordingStatus: nextRecordingStatus,
+        qualification,
+        copilotSuggestions: copilotSuggestionsLogRef.current,
+      }),
+    });
+    if (analyzeRes.ok) {
+      const analyzed = await analyzeRes.json().catch(() => ({}));
+      analysisPayload = analyzed.analysis ?? null;
+      if (analysisPayload) {
+        setPostCallSummary({
+          whatHappened: String((analysisPayload as { summary?: string }).summary ?? ""),
+          objections: ((analysisPayload as { objectionsRaised?: string[] }).objectionsRaised ?? []).join(", "),
+          commitments: String((analysisPayload as { followUpAction?: string }).followUpAction ?? ""),
+          sentiment: String((analysisPayload as { clinicInterestLevel?: string }).clinicInterestLevel ?? "unknown"),
+          nextSteps: String((analysisPayload as { followUpAction?: string }).followUpAction ?? ""),
+          followUpMessage: "",
+        });
+      }
+      setRecordingStatus("finalized");
+    }
+
+    await persistCallSession({
+      status: "ended",
+      structuredData: {
+        consentStatus,
+        recordingStatus: "finalized",
+        postCallAnalysis: analysisPayload,
+        qualification,
+      },
+    });
+  }
+
+  function openConsentGateForLiveCall() {
+    if (!activeClinic?.primaryPhone) {
+      toast.error("Selected clinic has no phone number.");
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      toast.error("This browser cannot record calls. Use Chrome or Edge for official calls.");
+      setRecordingBlocked(true);
+      return;
+    }
+    const { requiresExplicitConsent, jurisdiction } = inferConsentRequirement(activeClinic.state);
+    setConsentJurisdiction(jurisdiction);
+    setConsentRequiresExplicit(requiresExplicitConsent);
+    setConsentScript(DEFAULT_CONSENT_SCRIPT);
+    setConsentStatus(requiresExplicitConsent ? "pending" : "not_required");
+    setConsentModalOpen(true);
+  }
+
+  async function confirmConsentAndStartCall(verbalConsent: boolean) {
+    if (consentRequiresExplicit && !verbalConsent) {
+      setConsentStatus("declined");
+      toast.error("Recording consent is required for official clinic calls in this jurisdiction.");
+      return;
+    }
+    setConsentModalOpen(false);
+    const status: ConsentStatus = consentRequiresExplicit
+      ? "verbal_consent_obtained"
+      : "not_required";
+    setConsentStatus(status);
+    callIdempotencyKeyRef.current = `${activeClinic?.id}-${Date.now()}`;
+    await startCall(status);
   }
 
   function stopRemoteAudio() {
@@ -1779,6 +1983,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setKeypadInput("");
     setCallSessionId(null);
     setProviderCallId(null);
+    callIdempotencyKeyRef.current = null;
+    archivalRecorderRef.current = null;
+    recordingChunksRef.current = [];
+    stereoStreamRef.current = null;
+    setRecordingStatus("not_started");
+    setConsentStatus("pending");
+    setRecordingBlocked(false);
+    copilotSuggestionsLogRef.current = [];
     setResearch(null);
     setTranscript([]);
     setPostCallSummary(null);
@@ -1851,8 +2063,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         speakingListeningRatio,
         interruptionCount: practiceInterruptionCount,
         transcript: finalTranscript,
+        consentStatus,
+        recordingStatus,
       },
     });
+    if (isLiveMode) void finalizeCallRecordingAndAnalysis();
     toast.info(`Session ended · ${formatDuration(callDurationRef.current)}`);
   }
 
@@ -1903,7 +2118,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     }
   }
 
-  async function startCall() {
+  async function startCall(initialConsent: ConsentStatus = "not_required") {
     if (startingCallRef.current || (callState !== "idle" && callState !== "ended" && callState !== "failed" && callState !== "provider_unavailable")) return;
     if (!activeClinic?.primaryPhone) {
       toast.error("Selected clinic has no phone number.");
@@ -1921,7 +2136,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setActiveStage("intro");
 
     try {
-      await createCallSession("live");
+      const sessionId = await createCallSession("live");
+      if (sessionId) {
+        setConsentStatus(initialConsent);
+        await recordConsentEvent(initialConsent, consentScript, sessionId);
+      }
 
       // 1. Capture user microphone
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -2513,7 +2732,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                     <Phone className="size-4" /> {formatPhone(activeClinic.primaryPhone)}
                   </Button>
                   <Button
-                    onClick={isPracticeMode ? startPracticeCall : startCall}
+                    onClick={isPracticeMode ? startPracticeCall : openConsentGateForLiveCall}
                     disabled={(!isPracticeMode && !activeClinic.primaryPhone) || startingCallRef.current}
                     className={isPracticeMode ? "bg-indigo-600 hover:bg-indigo-700" : "bg-emerald-600 hover:bg-emerald-700"}
                   >
@@ -2772,6 +2991,21 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   </div>
                 )}
 
+                {/* Recording status (live official calls) */}
+                {isLiveMode && callState !== "idle" && (
+                  <Badge
+                    className={`shrink-0 text-[10px] uppercase tracking-wide ${
+                      recordingStatus === "active" || recordingStatus === "uploaded" || recordingStatus === "finalized" || recordingStatus === "local_backup_saved"
+                        ? "bg-rose-600/90 text-white border-rose-500"
+                        : recordingStatus === "failed" || recordingStatus === "cloud_save_failed" || recordingStatus === "audio_unavailable"
+                          ? "bg-amber-600 text-white border-amber-500"
+                          : "bg-slate-700 text-slate-200 border-slate-600"
+                    }`}
+                  >
+                    REC · {recordingStatus.replace(/_/g, " ")}
+                  </Badge>
+                )}
+
                 {/* Dial controller actions */}
                 <div className="flex items-center gap-1.5 shrink-0">
                   {isLiveFocus && callState !== "idle" && callState !== "ended" && callState !== "failed" && callState !== "provider_unavailable" && (
@@ -2806,7 +3040,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                       </Button>
                     ) : (
                       <Button
-                        onClick={startCall}
+                        onClick={openConsentGateForLiveCall}
                         disabled={startingCallRef.current}
                         className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-6 h-11 rounded-lg flex items-center gap-2 shadow-lg"
                       >
@@ -3513,6 +3747,56 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         </div>
         )}
       </div>
+
+      {/* Recording consent gate — required before official live calls */}
+      {consentModalOpen && activeClinic && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <Card className="max-w-lg w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="size-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-base">Recording & consent required</h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Official clinic calls must be recorded. This is not legal advice — confirm applicable consent rules for your jurisdiction.
+                </p>
+              </div>
+            </div>
+            <div className="text-xs space-y-2 bg-muted/40 rounded-lg p-3">
+              <p><span className="font-semibold">Clinic state:</span> {activeClinic.state ?? "Unknown"}</p>
+              <p><span className="font-semibold">Jurisdiction:</span> {consentJurisdiction}</p>
+              <p><span className="font-semibold">Explicit consent required:</span> {consentRequiresExplicit ? "Yes" : "No (still record with notice)"}</p>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-muted-foreground">Consent script</label>
+              <Textarea
+                value={consentScript}
+                onChange={(e) => setConsentScript(e.target.value)}
+                className="mt-1 text-xs min-h-[70px]"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Call objective: request permission for the <strong>free Novalyte AI directory listing</strong> only — no paid services on this call.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2 justify-end">
+              <Button variant="outline" onClick={() => setConsentModalOpen(false)}>Cancel</Button>
+              {consentRequiresExplicit ? (
+                <>
+                  <Button variant="destructive" onClick={() => { setConsentStatus("declined"); setConsentModalOpen(false); toast.error("Call cancelled — consent declined."); }}>
+                    Consent declined
+                  </Button>
+                  <Button onClick={() => void confirmConsentAndStartCall(true)}>
+                    Verbal consent obtained — start call
+                  </Button>
+                </>
+              ) : (
+                <Button onClick={() => void confirmConsentAndStartCall(false)}>
+                  Acknowledge & start recorded call
+                </Button>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

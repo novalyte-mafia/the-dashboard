@@ -13,6 +13,7 @@ const schema = z.object({
   failureMessage: z.string().max(1000).optional().nullable(),
   durationSec: z.number().int().min(0).max(86400).optional(),
   endedAt: z.string().datetime().optional().nullable(),
+  recordingUrl: z.string().max(2000).optional().nullable(),
 });
 
 const ALLOWED_STATUSES = new Set([
@@ -47,6 +48,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(data.failureMessage !== undefined ? { failureMessage: data.failureMessage } : {}),
       ...(data.durationSec !== undefined ? { durationSec: data.durationSec } : {}),
       ...(data.endedAt !== undefined ? { endedAt: data.endedAt ? new Date(data.endedAt) : null } : {}),
+      ...(data.recordingUrl !== undefined ? { recordingUrl: data.recordingUrl } : {}),
     },
   });
   return NextResponse.json({ call });

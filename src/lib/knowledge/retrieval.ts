@@ -118,8 +118,12 @@ export async function retrieveKnowledge(input: {
   const limit = input.limit ?? 5;
   const categories = detectKnowledgeCategories(input.query, input.stage);
 
-  const dbChunks = await retrieveFromDatabase(input.query, categories, limit);
-  const chunks = dbChunks.length >= 2 ? dbChunks : retrieveFromSeed(input.query, categories, limit);
+  const excludedCategories = new Set(["patient_acquisition", "clinic_services"]);
+  const filteredCategories = categories.filter((c) => !excludedCategories.has(c));
+
+  const dbChunks = await retrieveFromDatabase(input.query, filteredCategories, limit);
+  let chunks = (dbChunks.length >= 2 ? dbChunks : retrieveFromSeed(input.query, filteredCategories, limit))
+    .filter((c) => !excludedCategories.has(c.category));
 
   // Always include compliance guardrails when discussing guarantees or compliance topics
   if (/guarantee|hipaa|patient records|legal|certified/i.test(input.query)) {

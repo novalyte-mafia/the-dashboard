@@ -20,8 +20,9 @@ node_modules
 # production
 /build
 
-# misc
-.DS_Store
+# local call recording archive (sensitive)
+/call-recordings/
+
 *.pem
 
 # debug
