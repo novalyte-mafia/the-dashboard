@@ -364,6 +364,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const deepgramSocketRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
+  const telnyxClientRef = useRef<any>(null);
+  const telnyxCallRef = useRef<any>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const simulatorRef = useRef<TelephonySimulator | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
@@ -940,6 +943,134 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     }
   };
 
+  const startDeepgramStereoTranscription = async (call: any, micStream: MediaStream) => {
+    try {
+      // 1. Fetch Deepgram Token
+      const dgTokenRes = await fetch("/api/copilot/deepgram");
+      const dgTokenData = await dgTokenRes.json().catch(() => ({}));
+      if (!dgTokenRes.ok || !dgTokenData.token) {
+        throw new Error(dgTokenData.error || "Failed to fetch Deepgram token.");
+      }
+
+      // 2. Get remote clinic stream from Telnyx Call
+      let remoteStream = call.remoteStream;
+      if (!remoteStream) {
+        const pc = call.peerConnection || call._peerConnection?.pc;
+        if (pc && typeof pc.getReceivers === "function") {
+          const audioTracks = pc.getReceivers()
+            .map((r: any) => r.track)
+            .filter((t: any) => t && t.kind === "audio");
+          remoteStream = new MediaStream(audioTracks);
+        }
+      }
+
+      // 3. Web Audio stereo merger setup
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const audioCtx = new AudioCtx();
+      audioCtxRef.current = audioCtx;
+
+      const micSource = audioCtx.createMediaStreamSource(micStream);
+      const merger = audioCtx.createChannelMerger(2);
+      micSource.connect(merger, 0, 0); // Jamil mic to Left channel (0)
+
+      if (remoteStream && remoteStream.getAudioTracks().length > 0) {
+        const remoteSource = audioCtx.createMediaStreamSource(remoteStream);
+        remoteSource.connect(merger, 0, 1); // Clinic speaker to Right channel (1)
+      }
+
+      const dest = audioCtx.createMediaStreamDestination();
+      merger.connect(dest);
+      const stereoStream = dest.stream;
+
+      // 4. Connect Deepgram WebSocket with multichannel=true
+      const queryParams = new URLSearchParams({
+        model: "nova-2",
+        smart_format: "true",
+        filler_words: "true",
+        channels: "2",
+        multichannel: "true",
+        endpointing: "300",
+      });
+      const wsUrl = `wss://api.deepgram.com/v1/listen?${queryParams.toString()}`;
+      
+      console.log("Connecting to Deepgram WebSocket (Stereo mode)...");
+      const ws = new WebSocket(wsUrl, ["token", dgTokenData.token]);
+      deepgramSocketRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("Deepgram WebSocket stereo connection active.");
+        setSpeechRecognitionUnavailable(false);
+
+        // 5. Initialize MediaRecorder to stream raw audio in 250ms chunks
+        let mimeType = "audio/webm";
+        if (typeof MediaRecorder !== "undefined") {
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = "audio/ogg";
+          }
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = "";
+          }
+
+          const options = mimeType ? { mimeType } : undefined;
+          const recorder = new MediaRecorder(stereoStream, options);
+          mediaRecorderRef.current = recorder;
+
+          recorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+              ws.send(event.data);
+            }
+          };
+
+          recorder.start(250);
+        }
+      };
+
+      ws.onmessage = (event) => {
+        // Speaker Mode feedback loop prevention:
+        if (isClinicSpeaking && !isHeadphonesMode) {
+          return;
+        }
+
+        try {
+          const data = JSON.parse(event.data);
+          const channelData = data.channel;
+          const transcriptText = channelData?.alternatives?.[0]?.transcript;
+          
+          if (transcriptText && data.is_final) {
+            const spokenText = transcriptText.trim();
+            if (spokenText) {
+              // Left channel index 0 matches Jamil, Right channel index 1 matches Clinic
+              const channelIndex = data.channel_index ?? 0;
+              const speaker = channelIndex === 0 ? "Jamil" : "Clinic";
+
+              if (speaker === "Jamil") {
+                if (isPracticeMode) {
+                  handleUserSpeechInput(spokenText);
+                } else {
+                  handleManualTranscriptInput(spokenText);
+                }
+              } else {
+                setTranscript((prev) => [
+                  ...prev,
+                  { speaker: "Clinic", text: spokenText, timestamp: new Date().toISOString() }
+                ]);
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Error parsing Deepgram stereo transcript:", e);
+        }
+      };
+
+      ws.onerror = (e) => console.error("Deepgram WebSocket error:", e);
+      ws.onclose = () => console.log("Deepgram WebSocket closed.");
+
+    } catch (err: any) {
+      console.error("Deepgram stereo transcription setup failed:", err);
+      toast.warning("Deepgram transcription failed. Real-time translation might be unavailable.");
+    }
+  };
+
   const handleUserSpeechInput = (text: string) => {
     if (!text) return;
 
@@ -1132,16 +1263,21 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   }
 
   function endCall() {
-    setCallState("ended");
+    // 1. Disconnect Telnyx VoIP call
+    if (telnyxCallRef.current) {
+      try { telnyxCallRef.current.hangup(); } catch (e) {}
+      telnyxCallRef.current = null;
+    }
+    if (telnyxClientRef.current) {
+      try { telnyxClientRef.current.disconnect(); } catch (e) {}
+      telnyxClientRef.current = null;
+    }
+
     if (practiceConnectTimeoutRef.current) clearTimeout(practiceConnectTimeoutRef.current);
     practiceConnectTimeoutRef.current = null;
-    if (vapiPracticeRef.current) {
-      vapiPracticeRef.current.end();
-      vapiPracticeRef.current = null;
-    }
+    
+    setCallState("ended");
     stopSpeechRecognition();
-    stopAudioTesting();
-    setMicTestLevel(0);
     if (timerRef.current) clearInterval(timerRef.current);
     
     // Save to Supabase setting environment to practice
@@ -1167,6 +1303,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setMuted((m) => !m);
     if (vapiPracticeRef.current) {
       vapiPracticeRef.current.setMuted(!muted);
+    } else if (telnyxCallRef.current) {
+      try {
+        if (muted) {
+          telnyxCallRef.current.unmuteAudio();
+        } else {
+          telnyxCallRef.current.muteAudio();
+        }
+      } catch (e) {}
     } else if (mediaRecorderRef.current) {
       if (!muted) {
         try { mediaRecorderRef.current.pause(); } catch (e) {}
@@ -1179,23 +1323,15 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
   function toggleHold() {
     if (callState === "connected") {
-      if (vapiPracticeRef.current) {
-        vapiPracticeRef.current.setMuted(true);
-      } else if (isPracticeMode || isLiveMode) {
-        stopSpeechRecognition();
-      } else if (simulatorRef.current) {
-        simulatorRef.current.pause();
+      if (telnyxCallRef.current) {
+        try { telnyxCallRef.current.hold(); } catch (e) {}
       }
       setCallState("on_hold");
       setOnHold(true);
       toast.info("Session on hold");
     } else if (callState === "on_hold") {
-      if (vapiPracticeRef.current) {
-        vapiPracticeRef.current.setMuted(false);
-      } else if (isPracticeMode || isLiveMode) {
-        void startSpeechRecognition();
-      } else if (simulatorRef.current) {
-        simulatorRef.current.resume();
+      if (telnyxCallRef.current) {
+        try { telnyxCallRef.current.unhold(); } catch (e) {}
       }
       setCallState("connected");
       setOnHold(false);
@@ -1212,33 +1348,110 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
     resetCallState();
     startingCallRef.current = true;
-    setCallState("connected");
+    setCallState("configuring");
     setTranscript([]);
     setSpeechRecognitionUnavailable(false);
     setCopilotSuggestion("Hi, this is Jamil with Novalyte. I’m calling to verify a few details for your free clinic directory listing. Is now okay for a quick question?");
     setCopilotSource("opening");
     setCopilotQuestion("Confirm you reached the person who manages the clinic listing.");
     setActiveStage("intro");
+
     try {
+      // 1. Capture user microphone
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
       });
-      testStreamRef.current = stream;
+      micStreamRef.current = stream;
       startMicVisualizer(stream);
       setMicTestPassed(true);
       isListeningRef.current = true;
-      startSpeechRecognition();
-    } catch {
-      isListeningRef.current = false;
-      setSpeechRecognitionUnavailable(true);
-      toast.warning("Microphone access is unavailable. Type clinic responses to continue coaching.");
+
+      // 2. Fetch Telnyx WebRTC JWT Token
+      const tokenRes = await fetch("/api/telephony/token");
+      const tokenData = await tokenRes.json().catch(() => ({}));
+      
+      if (!tokenRes.ok || !tokenData.token) {
+        console.warn("Telnyx credentials missing. Falling back to Simulated VoIP Mode.");
+        toast.info("Telnyx configuration not found. Starting call in Simulated VoIP Mode.");
+        
+        setCallState("dialing");
+        setTimeout(() => {
+          setCallState("connected");
+          toast.success("Simulated VoIP call connected. Speak naturally.");
+          // Start browser single channel Deepgram translation
+          void startSpeechRecognition();
+        }, 1500);
+        startingCallRef.current = false;
+        return;
+      }
+
+      // 3. Initialize TelnyxRTC client (dynamic load to prevent SSR crashes)
+      let client = telnyxClientRef.current;
+      if (!client) {
+        const { TelnyxRTC } = await import("@telnyx/webrtc");
+        client = new TelnyxRTC({
+          login_token: tokenData.token,
+        });
+        telnyxClientRef.current = client;
+
+        client.on("telnyx.ready", () => {
+          console.log("TelnyxRTC line registered.");
+          toast.success("Telnyx softphone registered.");
+        });
+
+        client.on("telnyx.error", (err: any) => {
+          console.error("Telnyx client error:", err);
+          toast.error(`Telnyx connection error: ${err.message || "Line failed"}`);
+        });
+
+        client.connect();
+      }
+
+      // 4. Dial outbound clinic PSTN number
+      const call = client.newCall({
+        destinationNumber: activeClinic.primaryPhone,
+        callerNumber: process.env.TELNYX_PHONE_NUMBER || "+16017168585",
+      });
+      telnyxCallRef.current = call;
+
+      setCallState("dialing");
+
+      call.on("active", () => {
+        setCallState("connected");
+        toast.success("VoIP call connected.");
+        // Initialize Web Audio stereo merging and Deepgram WebSocket
+        void startDeepgramStereoTranscription(call, stream);
+      });
+
+      call.on("hangup", () => {
+        toast.info("Call disconnected.");
+        stopSpeechRecognition();
+        setCallState("ended");
+      });
+
+      call.on("error", (err: any) => {
+        console.error("Telnyx Call error:", err);
+        toast.error(`Call error: ${err.message || "Line issue"}`);
+        stopSpeechRecognition();
+        setCallState("failed");
+      });
+
+    } catch (err: any) {
+      console.error("Outbound call initialization failed:", err);
+      toast.warning("Telephony API failed. Checking backup visualizer route.");
+      // Fallback to local audio simulator
+      setCallState("connected");
+      void startSpeechRecognition();
+    } finally {
+      startingCallRef.current = false;
     }
-    startingCallRef.current = false;
-    toast.success("Manual coaching started. Place the clinic call from your Verizon phone on speaker.");
   }
 
   function handleKeypadPress(key: string) {
     setKeypadInput((v) => v + key);
+    if (telnyxCallRef.current) {
+      try { telnyxCallRef.current.dtmf(key); } catch (e) {}
+    }
     toast.info(`DTMF Tone: ${key}`);
   }
 
@@ -1963,7 +2176,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
               {/* Call active controls layout */}
               {callState !== "idle" && callState !== "ended" && callState !== "failed" && callState !== "provider_unavailable" && (
-                <div className={`relative z-10 grid gap-2 border-t border-slate-800 pt-3 text-slate-300 ${isPracticeMode ? "grid-cols-6" : "grid-cols-3"}`}>
+                <div className="relative z-10 grid gap-2 border-t border-slate-800 pt-3 text-slate-300 grid-cols-6">
                   <button
                     onClick={toggleMute}
                     className={`flex flex-col items-center justify-center p-2 rounded-lg hover:bg-slate-800 transition-colors ${
@@ -1971,7 +2184,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                     }`}
                   >
                     {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
-                    <span className="text-[10px] font-semibold mt-1">{isPracticeMode ? "Mute" : "Coach Mic"}</span>
+                    <span className="text-[10px] font-semibold mt-1">Mute</span>
                   </button>
 
                   <button
@@ -1982,10 +2195,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                     }`}
                   >
                     {onHold ? <Play className="size-5" /> : <Pause className="size-5" />}
-                    <span className="text-[10px] font-semibold mt-1">{onHold ? "Resume" : isPracticeMode ? "Hold" : "Pause"}</span>
+                    <span className="text-[10px] font-semibold mt-1">{onHold ? "Resume" : "Hold"}</span>
                   </button>
 
-                  {isPracticeMode && <button
+                  <button
                     onClick={() => setDialPadOpen(!dialPadOpen)}
                     className={`flex flex-col items-center justify-center p-2 rounded-lg hover:bg-slate-800 transition-colors ${
                       dialPadOpen ? "text-primary bg-primary/10" : ""
@@ -1993,9 +2206,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   >
                     <Grid3x3 className="size-5" />
                     <span className="text-[10px] font-semibold mt-1">Keypad</span>
-                  </button>}
+                  </button>
 
-                  {isPracticeMode && <button
+                  <button
                     onClick={() => {
                       setSpeakerEnabled(!speakerEnabled);
                       toast.info(speakerEnabled ? "Speaker muted" : "Speaker unmuted");
@@ -2006,30 +2219,29 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   >
                     {speakerEnabled ? <Volume2 className="size-5" /> : <VolumeX className="size-5" />}
                     <span className="text-[10px] font-semibold mt-1">Speaker</span>
-                  </button>}
+                  </button>
 
-                  {isPracticeMode && <button
+                  <button
                     onClick={() => {
                       if (isPracticeMode && callState === "connected") {
-                        // Repeat last response
                         const currentScenario = PRACTICE_SCENARIOS.find(s => s.id === practiceScenario);
                         const currentStep = currentScenario?.dialogueTree[scenarioStepIndex];
                         if (currentStep) speakPracticeText(currentStep.clinicSpeech);
                       } else {
-                        toast.warning("Transfer not configured.");
+                        toast.warning("VoIP call transfers require business registry setup.");
                       }
                     }}
                     disabled={isPracticeMode && callState === "dialing"}
                     className="flex flex-col items-center justify-center p-2 rounded-lg hover:bg-slate-800 transition-colors"
                   >
                     {isPracticeMode ? <RotateCcw className="size-5" /> : <UserCheck className="size-5" />}
-                    <span className="text-[10px] font-semibold mt-1">{isPracticeMode ? "Repeat Speech" : "Transfer"}</span>
-                  </button>}
+                    <span className="text-[10px] font-semibold mt-1">{isPracticeMode ? "Repeat" : "Transfer"}</span>
+                  </button>
 
                   <div className="flex flex-col items-center justify-center p-2 text-slate-500">
                     <Clock className="size-5" />
                     <span className="text-[9px] font-bold mt-1 uppercase font-mono text-slate-400">
-                      {isPracticeMode ? "PRACTICE" : "VERIZON"}
+                      {isPracticeMode ? "PRACTICE" : "VOIP APP"}
                     </span>
                   </div>
                 </div>
