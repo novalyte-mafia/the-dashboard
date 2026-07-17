@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   const sourceVoice = sourceAssistant.voice ?? {};
   const humeVoiceId = configuredHumeVoiceId
     || (sourceVoice.provider === "hume" && sourceVoice.voiceId ? sourceVoice.voiceId : null)
-    || "a623d3ed-612c-413b-b09f-e0a379a317f0"; // Hume "Warm Female Assistant Voice"
+    || "b201d214-914c-4d0a-b8e4-54adfc14a0dd"; // Hume "Inspiring Woman"
   const useCustomHumeVoice = process.env.HUME_CUSTOM_VOICE === "true";
   const practiceVoice = {
     provider: "hume",
