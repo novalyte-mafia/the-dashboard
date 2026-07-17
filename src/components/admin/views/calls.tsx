@@ -377,6 +377,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const startingCallRef = useRef(false);
   const transcriptRef = useRef<{ speaker: string; text: string; timestamp: string }[]>([]);
   const speakerEnabledRef = useRef(true);
+  const practiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastMicAudioAtRef = useRef(0);
+  const micSilenceWarnedRef = useRef(false);
+  const ttsFallbackWarnedRef = useRef(false);
+  const isClinicSpeakingRef = useRef(false);
 
   useEffect(() => {
     callDurationRef.current = callDuration;
@@ -393,6 +398,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   useEffect(() => {
     speakerEnabledRef.current = speakerEnabled;
   }, [speakerEnabled]);
+
+  useEffect(() => {
+    isClinicSpeakingRef.current = isClinicSpeaking;
+  }, [isClinicSpeaking]);
 
   useEffect(() => () => {
     if (speakerTestTimeoutRef.current) clearTimeout(speakerTestTimeoutRef.current);
@@ -763,7 +772,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   // PROVIDER-GRADE PRACTICE CALL ENGINE
   // ---------------------------------------------------------------------------
   const startScriptedPracticeFallback = async (reason: string) => {
-    toast.warning(`${reason} Switching to the scripted AI clinic voice.`);
+    toast.warning(`Fallback voice mode (Vapi unavailable): ${reason}`, {
+      description: "The realistic AI clinic could not stay connected, so a scripted practice clinic is running instead.",
+      duration: 10000,
+    });
     setCallState("connected");
     setSpeechRecognitionUnavailable(false);
     const scenario = PRACTICE_SCENARIOS.find((s) => s.id === practiceScenario) || PRACTICE_SCENARIOS[0];
@@ -778,8 +790,38 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     void startSpeechRecognition();
   };
 
+  // Must run synchronously inside the click gesture so later programmatic
+  // playback (Deepgram TTS turns, which start long after the click) is not
+  // blocked by the browser autoplay policy — that block is what previously
+  // forced the robotic window.speechSynthesis voice.
+  const unlockPracticeAudio = () => {
+    if (typeof window === "undefined") return;
+    let audio = practiceAudioRef.current;
+    if (!audio) {
+      audio = new Audio();
+      audio.setAttribute("playsinline", "true");
+      practiceAudioRef.current = audio;
+    }
+    // 1-sample silent WAV keeps the element "user-activated" for future play() calls.
+    audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
+    void audio.play().catch(() => { /* unlock is best-effort */ });
+  };
+
+  const applyPracticeAudioDevices = async (vapi: Vapi) => {
+    try {
+      if (selectedMic) await vapi.setInputDevicesAsync({ audioDeviceId: selectedMic });
+      if (selectedSpeaker) vapi.setOutputDeviceAsync({ outputDeviceId: selectedSpeaker });
+    } catch (error) {
+      console.warn("Could not apply selected audio devices to the practice call:", error);
+    }
+  };
+
   const startPracticeCall = async () => {
     resetCallState();
+    unlockPracticeAudio();
+    ttsFallbackWarnedRef.current = false;
+    micSilenceWarnedRef.current = false;
+    lastMicAudioAtRef.current = 0;
     setCallState("configuring");
     setPracticeResponse("");
     setSpeechRecognitionUnavailable(false);
@@ -806,10 +848,28 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       setMicTestPassed(true);
       setSpeakerTestPassed(true);
       setAssistantSpeakerEnabled(speakerEnabledRef.current);
+      void applyPracticeAudioDevices(vapi);
       void persistCallSession({ status: "connected" });
       toast.success("Simulation connected — the AI clinic is on the line. Talk normally.");
+      // Vapi kills web calls whose mic never delivers audio
+      // ("assistant-did-not-receive-customer-audio"), so warn the founder early.
+      lastMicAudioAtRef.current = 0;
+      micSilenceWarnedRef.current = false;
+      setTimeout(() => {
+        if (vapiPracticeRef.current !== vapi || micSilenceWarnedRef.current) return;
+        if (lastMicAudioAtRef.current === 0) {
+          micSilenceWarnedRef.current = true;
+          toast.error("The clinic can't hear you — no microphone audio is reaching the call.", {
+            description: "Check the browser/macOS microphone permission and the selected input device, or the AI will hang up.",
+            duration: 12000,
+          });
+        }
+      }, 10000);
     });
-    vapi.on("local-volume-level", (volume) => setMicTestLevel(Math.min(100, Math.round(volume * 100))));
+    vapi.on("local-volume-level", (volume) => {
+      if (volume > 0.01) lastMicAudioAtRef.current = Date.now();
+      setMicTestLevel(Math.min(100, Math.round(volume * 100)));
+    });
     vapi.on("speech-start", () => setIsClinicSpeaking(true));
     vapi.on("speech-end", () => setIsClinicSpeaking(false));
     vapi.on("message", (message) => {
@@ -833,12 +893,17 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       if (callStateRef.current !== "ended") setCallState("ended");
       vapiPracticeRef.current = null;
     });
-    vapi.on("error", async () => {
+    vapi.on("error", async (error) => {
       if (practiceConnectTimeoutRef.current) clearTimeout(practiceConnectTimeoutRef.current);
       practiceConnectTimeoutRef.current = null;
       vapiPracticeRef.current = null;
       try { await vapi.stop(); } catch { /* ignore */ }
-      await startScriptedPracticeFallback("AI clinic audio failed.");
+      const detail = (error as { errorMsg?: string; message?: string } | undefined);
+      const reason = detail?.errorMsg || detail?.message || "AI clinic audio failed.";
+      const micNeverHeard = lastMicAudioAtRef.current === 0 && callStateRef.current === "connected";
+      await startScriptedPracticeFallback(
+        micNeverHeard ? `${reason} No microphone audio reached the call — check mic permissions.` : reason,
+      );
     });
 
     let practiceConnectionTimedOut = false;
@@ -937,7 +1002,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
+      // Reuse the element unlocked during the click gesture; a fresh Audio()
+      // created seconds after the click gets blocked by the autoplay policy.
+      const audio = practiceAudioRef.current ?? new Audio();
+      practiceAudioRef.current = audio;
+      audio.src = url;
       audio.volume = speakerEnabledRef.current ? 1 : 0;
       if (selectedSpeaker && typeof (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId === "function") {
         try {
@@ -965,20 +1034,39 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         }
       };
 
-      await audio.play();
+      try {
+        await audio.play();
+      } catch (playError) {
+        // Autoplay block: don't degrade to the robotic voice — ask for one tap
+        // and replay the same natural-voice audio.
+        console.warn("Practice TTS playback blocked, waiting for a user tap:", playError);
+        toast.warning("Tap anywhere once to enable the clinic voice.", { duration: 8000 });
+        window.addEventListener("pointerdown", () => {
+          void audio.play().catch(() => fallbackSpeechSynthesis(text));
+        }, { once: true });
+      }
     } catch (err) {
       console.warn("Deepgram TTS failed, falling back to browser synthesis:", err);
+      if (!ttsFallbackWarnedRef.current) {
+        ttsFallbackWarnedRef.current = true;
+        toast.warning("Natural clinic voice (Deepgram TTS) is unavailable — using the basic browser voice.", {
+          description: err instanceof Error ? err.message : undefined,
+          duration: 10000,
+        });
+      }
       fallbackSpeechSynthesis(text);
     }
   };
 
   const startSpeechRecognition = async () => {
     try {
-      // 1. Get user media stream if not already active
+      // 1. Get user media stream if not already active. Use an `ideal`
+      // constraint so a stale saved device id degrades to the default mic
+      // instead of throwing OverconstrainedError and killing recognition.
       let stream = micStreamRef.current;
       if (!stream) {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
+          audio: selectedMic ? { deviceId: { ideal: selectedMic } } : true,
         });
         micStreamRef.current = stream;
       }
@@ -1033,8 +1121,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       };
 
       ws.onmessage = (event) => {
-        // Speaker Mode feedback loop prevention:
-        if (isClinicSpeaking && !isHeadphonesMode) {
+        // Speaker Mode feedback loop prevention (ref, not state: this closure
+        // is created once and would otherwise always see the initial value):
+        if (isClinicSpeakingRef.current && !isHeadphonesMode) {
           return;
         }
 
@@ -1314,6 +1403,10 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     if (audioCtxRef.current) {
       try { void audioCtxRef.current.close(); } catch (e) {}
       audioCtxRef.current = null;
+    }
+
+    if (practiceAudioRef.current) {
+      try { practiceAudioRef.current.pause(); } catch { /* ignore */ }
     }
 
     if (typeof window !== "undefined" && window.speechSynthesis) {
