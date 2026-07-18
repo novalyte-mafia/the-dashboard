@@ -53,12 +53,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     },
   }).catch(() => undefined);
 
-  await supabase.from("call_events").insert({
-    call_session_id: callSessionId,
-    event_type: "consent",
-    event_status: parsed.data.consentStatus,
-    payload: { jurisdiction: parsed.data.jurisdiction },
-  }).catch(() => undefined);
+  try {
+    await supabase.from("call_events").insert({
+      call_session_id: callSessionId,
+      event_type: "consent",
+      event_status: parsed.data.consentStatus,
+      payload: { jurisdiction: parsed.data.jurisdiction },
+    });
+  } catch (_) {
+    // Non-critical audit log — swallow failures
+  }
 
   return NextResponse.json({ consent: data });
 }

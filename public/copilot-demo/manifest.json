@@ -1,0 +1,158 @@
+{
+  "generatedAt": "2026-07-17T10:44:20.904Z",
+  "jamilVoice": "aura-orion-en",
+  "clinicVoice": "aura-asteria-en",
+  "turns": [
+    {
+      "speaker": "Jamil",
+      "text": "Hi, this is Jamil with Novalyte AI — do you have a quick minute about your clinic's free directory listing?",
+      "source": "scripted_opening"
+    },
+    {
+      "speaker": "Clinic",
+      "text": "Hello, this is the front desk. How can I help you?",
+      "source": "glm_clinic"
+    },
+    {
+      "speaker": "Jamil",
+      "text": "Yes, exactly — I'm calling from Novalyte AI to request permission to include your clinic in our free men's health directory and confirm a few public details before anything is published.",
+      "source": "deterministic_copilot",
+      "intent": "confirm_call_purpose",
+      "policy": "answer_question",
+      "validation": {
+        "ok": true,
+        "issues": [],
+        "policy": {
+          "latest_speaker": "clinic",
+          "latest_utterance": "Hello, this is the front desk. How can I help you?",
+          "is_direct_question": true,
+          "question_intent": "confirm_call_purpose",
+          "unanswered_question_exists": true,
+          "allowed_next_action": "answer_question",
+          "blocked_actions": [
+            "ask_for_email",
+            "ask_for_phone",
+            "ask_for_booking_url",
+            "advance_checklist"
+          ]
+        }
+      }
+    },
+    {
+      "speaker": "Clinic",
+      "text": "Are you calling about our directory listing?",
+      "source": "glm_clinic"
+    },
+    {
+      "speaker": "Jamil",
+      "text": "Yes — I'm with Novalyte AI, calling about permission to list your clinic in our free men's health directory.",
+      "source": "deterministic_copilot",
+      "intent": "confirm_call_purpose",
+      "policy": "answer_question",
+      "validation": {
+        "ok": true,
+        "issues": [],
+        "policy": {
+          "latest_speaker": "clinic",
+          "latest_utterance": "Are you calling about our directory listing?",
+          "is_direct_question": true,
+          "question_intent": "confirm_call_purpose",
+          "unanswered_question_exists": true,
+          "allowed_next_action": "answer_question",
+          "blocked_actions": [
+            "ask_for_email",
+            "ask_for_phone",
+            "ask_for_booking_url",
+            "advance_checklist"
+          ]
+        }
+      }
+    },
+    {
+      "speaker": "Clinic",
+      "text": "Does the listing cost anything?",
+      "source": "glm_clinic"
+    },
+    {
+      "speaker": "Jamil",
+      "text": "Yes — the directory listing is completely free, no fee and no obligation. I just need your permission to include your public details.",
+      "source": "deterministic_copilot",
+      "intent": "ask_if_free",
+      "policy": "answer_question",
+      "validation": {
+        "ok": true,
+        "issues": [],
+        "policy": {
+          "latest_speaker": "clinic",
+          "latest_utterance": "Does the listing cost anything?",
+          "is_direct_question": true,
+          "question_intent": "ask_if_free",
+          "unanswered_question_exists": true,
+          "allowed_next_action": "answer_question",
+          "blocked_actions": [
+            "ask_for_email",
+            "ask_for_phone",
+            "ask_for_booking_url",
+            "advance_checklist"
+          ]
+        }
+      }
+    },
+    {
+      "speaker": "Clinic",
+      "text": "What exactly would you need from us?",
+      "source": "glm_clinic"
+    },
+    {
+      "speaker": "Jamil",
+      "text": "Mainly permission to list your public clinic details, plus phone, services, and whether you're accepting new patients.",
+      "source": "deterministic_copilot",
+      "intent": "ask_what_details",
+      "policy": "answer_question",
+      "validation": {
+        "ok": true,
+        "issues": [],
+        "policy": {
+          "latest_speaker": "clinic",
+          "latest_utterance": "What exactly would you need from us?",
+          "is_direct_question": true,
+          "question_intent": "ask_what_details",
+          "unanswered_question_exists": true,
+          "allowed_next_action": "answer_question",
+          "blocked_actions": [
+            "ask_for_email",
+            "ask_for_phone",
+            "ask_for_booking_url",
+            "advance_checklist"
+          ]
+        }
+      }
+    },
+    {
+      "speaker": "Clinic",
+      "text": "Okay, yes — you can list us if it's free.",
+      "source": "glm_clinic"
+    },
+    {
+      "speaker": "Jamil",
+      "text": "Thank you — I'll confirm just a couple of public details, then send you a summary to review before anything goes live. What's the best phone number to list?",
+      "source": "deterministic_copilot",
+      "intent": "grant_permission",
+      "policy": "acknowledge_and_verify",
+      "validation": {
+        "ok": true,
+        "issues": [],
+        "policy": {
+          "latest_speaker": "clinic",
+          "latest_utterance": "Okay, yes — you can list us if it's free.",
+          "is_direct_question": false,
+          "question_intent": "grant_permission",
+          "unanswered_question_exists": false,
+          "allowed_next_action": "acknowledge_and_verify",
+          "blocked_actions": []
+        }
+      }
+    }
+  ],
+  "audio": "/copilot-demo/directory-listing-rehearsal.mp3"
+}

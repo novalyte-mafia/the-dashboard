@@ -37,8 +37,16 @@ export async function GET() {
       throw new Error(`Telnyx token request failed: ${res.status} ${errText}`);
     }
 
-    const payload = await res.json();
-    const token = payload.data || payload.token || payload;
+    const body = await res.text();
+    // Telnyx returns either a raw JWT string or a JSON wrapper
+    let token: string;
+    try {
+      const parsed = JSON.parse(body);
+      token = parsed.data || parsed.token || body;
+    } catch {
+      // Raw JWT string — use directly
+      token = body;
+    }
     return NextResponse.json({ token, callerNumber });
   } catch (error) {
     console.error("Failed to generate Telnyx token:", error);

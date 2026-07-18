@@ -73,7 +73,8 @@ import {
   inferConsentRequirement,
   type ConsentStatus,
 } from "@/lib/calls/recording-consent";
-import { suggestFromTranscriptContext, extractClinicFacts } from "@/lib/calls/transcript-context";
+import { suggestFromTranscriptContext, extractClinicFacts, intentToCallStage } from "@/lib/calls/transcript-context";
+import { emergencyFallbackCard, openingLine } from "@/lib/calls/response-library";
 
 // ---------------------------------------------------------------------------
 // PRACTICE PERSONAS
@@ -359,10 +360,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const [showNewMessages, setShowNewMessages] = useState(false);
   const [newMessagesCount, setNewMessagesCount] = useState(0);
   const [activeStage, setActiveStage] = useState<string>("intro");
-  const [copilotSuggestion, setCopilotSuggestion] = useState<string | null>("Place a call to receive private, suggested talk tracks.");
+  const [copilotSuggestion, setCopilotSuggestion] = useState<string | null>(openingLine().primary);
   const [copilotLoading, setCopilotLoading] = useState(false);
-  const [copilotSource, setCopilotSource] = useState<"opening" | "ai" | "field_guide">("opening");
+  const [copilotSource, setCopilotSource] = useState<"opening" | "deterministic" | "ai" | "field_guide">("opening");
   const [copilotQuestion, setCopilotQuestion] = useState<string | null>(null);
+  const [copilotShorter, setCopilotShorter] = useState<string | null>(openingLine().shorter);
+  const [copilotDoNotSay, setCopilotDoNotSay] = useState<string[]>(openingLine().doNotSay);
+  const [copilotFreezeRecovery, setCopilotFreezeRecovery] = useState<string>(openingLine().freezeRecovery);
+  const emergencyCard = emergencyFallbackCard();
   const [objectionGuidance, setObjectionGuidance] = useState<string | null>(null);
   const [clinicFacts, setClinicFacts] = useState<string[]>([]);
   const [copilotWarning, setCopilotWarning] = useState<string | null>(null);
@@ -429,6 +434,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const micSilenceWarnedRef = useRef(false);
   const ttsFallbackWarnedRef = useRef(false);
   const isClinicSpeakingRef = useRef(false);
+  const userSpeechDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userSpeechAccumRef = useRef("");
 
   useEffect(() => {
     callDurationRef.current = callDuration;
@@ -453,6 +460,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   useEffect(() => () => {
     if (speakerTestTimeoutRef.current) clearTimeout(speakerTestTimeoutRef.current);
     if (practiceConnectTimeoutRef.current) clearTimeout(practiceConnectTimeoutRef.current);
+    if (userSpeechDebounceRef.current) clearTimeout(userSpeechDebounceRef.current);
   }, []);
 
   // Controlled transcript auto-follow:
@@ -961,6 +969,18 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           });
         }
       }, 10000);
+      // Speech-activity timeout: if Vapi connects but the AI clinic
+      // never speaks (no transcript arrives), fall back to the scripted
+      // practice mode so the user isn't stuck on "Waiting…" forever.
+      setTimeout(() => {
+        if (vapiPracticeRef.current !== vapi) return;
+        const hasTranscript = transcriptRef.current.some((l) => !isCoachLine(l));
+        if (!hasTranscript) {
+          void vapi.stop();
+          vapiPracticeRef.current = null;
+          void startScriptedPracticeFallback("AI clinic didn't respond — switching to scripted mode.");
+        }
+      }, 8000);
     });
     vapi.on("local-volume-level", (volume) => {
       if (volume > 0.01) lastMicAudioAtRef.current = Date.now();
@@ -971,15 +991,53 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     vapi.on("message", (message) => {
       if (message?.type !== "transcript" || message?.transcriptType !== "final" || !message.transcript) return;
       const speaker = message.role === "assistant" ? "Clinic" : "Jamil";
+      const spokenText = message.transcript.trim();
+      if (!spokenText) return;
+
       setTranscript((previous) => {
-        const prior = lastUtterance(previous);
-        const duplicate = prior?.speaker === speaker && prior?.text === message.transcript;
-        if (duplicate) return previous;
-        const next = [...previous, { speaker, text: message.transcript, timestamp: new Date().toISOString() }];
-        if (speaker === "Clinic") {
-          void requestManualCopilot(next);
+        const prevNonCoach = previous.filter((l) => !isCoachLine(l));
+        const prior = prevNonCoach.at(-1);
+
+        if (prior?.speaker === speaker && prior?.text === spokenText) return previous;
+
+        const nowMs = Date.now();
+        const priorTimeMs = prior ? Date.parse(prior.timestamp) : NaN;
+        const shouldMerge =
+          prior &&
+          prior.speaker === speaker &&
+          Number.isFinite(priorTimeMs) &&
+          nowMs - priorTimeMs <= 2800;
+
+        const nextLine: TranscriptLine = { speaker, text: spokenText, timestamp: new Date().toISOString() };
+        const nextNonCoach = [...prevNonCoach];
+        if (shouldMerge && prior) {
+          nextNonCoach[nextNonCoach.length - 1] = {
+            ...prior,
+            text: `${prior.text} ${spokenText}`.replace(/\s+/g, " ").trim(),
+            timestamp: nextLine.timestamp,
+          };
+        } else {
+          nextNonCoach.push(nextLine);
         }
-        return next;
+
+        if (speaker === "Clinic") {
+          const lastText = nextNonCoach.at(-1)?.text ?? "";
+          const isDigitFragment = /^[\d\s.,-]{1,16}$/.test(lastText.trim());
+          const looksComplete =
+            !isDigitFragment &&
+            (/[?!.]\s*$/.test(lastText) ||
+              lastText.length >= 20 ||
+              /\b(free|fee|fees|cost|price|charge|yes|accept|patients|services|number|directory|listing|calling)\b/i.test(lastText));
+
+          const nextWithCoach = upsertInlineCoachSuggestion(nextNonCoach, COACH_LISTENING_TEXT);
+          if (looksComplete || isDigitFragment) queueCopilotRequest(nextWithCoach);
+          return nextWithCoach;
+        }
+
+        // Jamil spoke — also trigger a copilot update so coaching
+        // adjusts to what the operator actually said.
+        queueCopilotRequest(nextNonCoach);
+        return nextNonCoach;
       });
     });
     vapi.on("call-end", () => {
@@ -1010,7 +1068,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       void vapi.stop();
       vapiPracticeRef.current = null;
       void startScriptedPracticeFallback("Simulation connect timed out.");
-    }, 18000);
+    }, 10000);
 
     try {
       const persona = PRACTICE_PERSONAS.find((p) => p.id === practicePersona);
@@ -1233,7 +1291,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               if (isPracticeMode) {
                 handleUserSpeechInput(spokenText);
               } else {
-                handleManualTranscriptInput(spokenText);
+                // Single-channel Deepgram captures the operator's mic —
+                // tag as Jamil (not Clinic) so the copilot sees context.
+                const nextLine: TranscriptLine = { speaker: "Jamil", text: spokenText, timestamp: new Date().toISOString() };
+                setTranscript((previous) => {
+                  const next = [...previous, nextLine];
+                  queueCopilotRequest(next);
+                  return next;
+                });
               }
             }
           }
@@ -1437,45 +1502,84 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       setTimeout(() => setInterruptionWarning(false), 3000);
     }
 
-    // Push operator text to transcript
-    setTranscript((prev) => [...prev, { speaker: "Jamil", text, timestamp: new Date().toISOString() }]);
-
-    // Trigger next dialogue turn from the scenario Dialogue Tree
-    const scenario = PRACTICE_SCENARIOS.find((s) => s.id === practiceScenario) || PRACTICE_SCENARIOS[0];
-    const nextStepIdx = scenarioStepIndex + 1;
-
-    if (nextStepIdx < scenario.dialogueTree.length) {
-      const nextTurnObj = scenario.dialogueTree[nextStepIdx];
-      
-      // Update step index
-      setScenarioStepIndex(nextStepIdx);
-
-      // Simulate a thinking delay (1-2s) before clinic responds
-      setTimeout(() => {
-        setTranscript((prev) => [...prev, { speaker: "Clinic", text: nextTurnObj.clinicSpeech, timestamp: new Date().toISOString() }]);
-        speakPracticeText(nextTurnObj.clinicSpeech);
-        updateCopilotSuggestions(nextStepIdx, scenario);
-      }, 1200);
-    } else {
-      // Out of script turns: wrap up the call
-      setTimeout(() => {
-        const wrapUpText = "Okay Jamil, that sounds good. We are all set here. Goodbye!";
-        const wrapUpCoach = "Outreach target met. Click 'Hang Up' to finalize.";
-        setTranscript((prev) =>
-          upsertInlineCoachSuggestion(
-            [...prev, { speaker: "Clinic", text: wrapUpText, timestamp: new Date().toISOString() }],
-            wrapUpCoach,
-          ),
-        );
-        speakPracticeText(wrapUpText);
-        setCopilotSuggestion(wrapUpCoach);
-        setCopilotQuestion(null);
-      }, 1500);
+    // Also stop Deepgram TTS playback if playing
+    if (practiceAudioRef.current && !practiceAudioRef.current.paused) {
+      try { practiceAudioRef.current.pause(); } catch { /* ignore */ }
+      setIsClinicSpeaking(false);
     }
+
+    // Accumulate speech fragments so the user can finish their full
+    // thought before the scripted clinic responds.  Deepgram sends
+    // is_final fragments every ~300ms of silence; merging them here
+    // prevents each fragment from advancing the dialogue tree.
+    userSpeechAccumRef.current = userSpeechAccumRef.current
+      ? `${userSpeechAccumRef.current} ${text}`.replace(/\s+/g, " ").trim()
+      : text;
+
+    // Push the fragment to the transcript immediately for visual feedback,
+    // but merge with the previous Jamil line if one exists.
+    setTranscript((prev) => {
+      const last = prev.at(-1);
+      if (last && last.speaker === "Jamil" && !isCoachLine(last)) {
+        const merged = [...prev];
+        merged[merged.length - 1] = {
+          ...last,
+          text: `${last.text} ${text}`.replace(/\s+/g, " ").trim(),
+          timestamp: new Date().toISOString(),
+        };
+        return merged;
+      }
+      return [...prev, { speaker: "Jamil", text, timestamp: new Date().toISOString() }];
+    });
+
+    // Debounce: wait 2 seconds after the last fragment before
+    // advancing the scenario so the user can finish speaking.
+    if (userSpeechDebounceRef.current) clearTimeout(userSpeechDebounceRef.current);
+    userSpeechDebounceRef.current = setTimeout(() => {
+      const fullText = userSpeechAccumRef.current;
+      userSpeechAccumRef.current = "";
+      if (!fullText) return;
+
+      // Trigger next dialogue turn from the scenario Dialogue Tree
+      const scenario = PRACTICE_SCENARIOS.find((s) => s.id === practiceScenario) || PRACTICE_SCENARIOS[0];
+      const nextStepIdx = scenarioStepIndex + 1;
+
+      if (nextStepIdx < scenario.dialogueTree.length) {
+        const nextTurnObj = scenario.dialogueTree[nextStepIdx];
+        setScenarioStepIndex(nextStepIdx);
+
+        // Simulate a thinking delay before clinic responds
+        setTimeout(() => {
+          setTranscript((prev) => {
+            const clinicLine: TranscriptLine = { speaker: "Clinic", text: nextTurnObj.clinicSpeech, timestamp: new Date().toISOString() };
+            const next = [...prev, clinicLine];
+            queueCopilotRequest(next);
+            return next;
+          });
+          speakPracticeText(nextTurnObj.clinicSpeech);
+        }, 1200);
+      } else {
+        // Out of script turns: wrap up the call
+        setTimeout(() => {
+          const wrapUpText = "Okay Jamil, that sounds good. We are all set here. Goodbye!";
+          const wrapUpCoach = "Outreach target met. Click 'Hang Up' to finalize.";
+          setTranscript((prev) =>
+            upsertInlineCoachSuggestion(
+              [...prev, { speaker: "Clinic", text: wrapUpText, timestamp: new Date().toISOString() }],
+              wrapUpCoach,
+            ),
+          );
+          speakPracticeText(wrapUpText);
+          setCopilotSuggestion(wrapUpCoach);
+          setCopilotQuestion(null);
+        }, 1500);
+      }
+    }, 2000);
   };
 
   // Copilot request debouncing & stale-response protection
   const copilotRequestSeqRef = useRef(0);
+  const transcriptRevisionRef = useRef(0);
   const copilotAbortControllerRef = useRef<AbortController | null>(null);
   const copilotDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingCopilotConversationRef = useRef<TranscriptLine[] | null>(null);
@@ -1521,6 +1625,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     if (!activeClinic) return;
 
     const requestId = (copilotRequestSeqRef.current += 1);
+    const transcriptRevision = (transcriptRevisionRef.current += 1);
     copilotAbortControllerRef.current?.abort();
     const controller = new AbortController();
     copilotAbortControllerRef.current = controller;
@@ -1531,12 +1636,28 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     try {
       const spokenOnly = utteranceTranscript(conversation);
       const clinicTurns = spokenOnly.filter((l) => l.speaker === "Clinic");
-      // Merge recent clinic fragments into one utterance for context (phone digits, etc.)
       const recentClinicBundle = clinicTurns.slice(-5).map((l) => l.text).join(" ").replace(/\s+/g, " ").trim();
       const lastClinicText = clinicTurns.at(-1)?.text ?? "";
       const transcriptNotes = spokenOnly.slice(-16).map((line) => `${line.speaker}: ${line.text}`).join("\n");
+      const previousSuggestions = copilotSuggestionHistoryRef.current.slice(-3);
 
-      // Auto-mark checklist from what the clinic already said
+      const deterministicPreview = suggestFromTranscriptContext({
+        transcript: transcriptNotes,
+        latestClinicUtterance: recentClinicBundle || lastClinicText,
+        previousSuggestions,
+      });
+      if (deterministicPreview.policy.is_direct_question || deterministicPreview.intent !== "unknown") {
+        setCopilotSource("deterministic");
+        setCopilotSuggestion(deterministicPreview.suggestion);
+        setCopilotShorter(deterministicPreview.shorter);
+        setCopilotDoNotSay(deterministicPreview.doNotSay);
+        setCopilotFreezeRecovery(deterministicPreview.freezeRecovery);
+        setCopilotStructuredReason(deterministicPreview.reason);
+        setCopilotQuestion(deterministicPreview.askNext);
+        setActiveStage(intentToCallStage(deterministicPreview.intent));
+        setTranscript((prev) => upsertInlineCoachSuggestion(prev, deterministicPreview.suggestion));
+      }
+
       const facts = extractClinicFacts(transcriptNotes);
       setQualification((prev) => {
         const next = { ...prev };
@@ -1568,7 +1689,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           qualificationSummary: QUALIFICATION_CHECKLIST.map((q) => `${q.id}:${qualNow[q.id] ? "YES" : "NO"}`).join(", "),
           missingQualification: QUALIFICATION_CHECKLIST.filter((q) => !qualNow[q.id]).map((q) => q.label).join("; "),
           detectedObjections: expandedObjection ? expandedObjection : objectionGuidance ?? "",
-          previousSuggestions: copilotSuggestionHistoryRef.current.slice(-3).join("\n"),
+          previousSuggestions: previousSuggestions.join("\n"),
+          requestSeq: requestId,
+          transcriptRevision,
         }),
       });
 
@@ -1576,11 +1699,23 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       if (!response.ok) throw new Error(payload.error || "Copilot failed.");
       const suggestion = typeof payload.suggestion === "string" ? payload.suggestion : "";
 
-      // Ignore stale responses if a newer request started.
       if (requestId !== copilotRequestSeqRef.current) return;
+      if (typeof payload.transcriptRevision === "number" && payload.transcriptRevision < transcriptRevisionRef.current) return;
 
       setCopilotSuggestion(suggestion);
-      setCopilotSource(payload.source === "field_guide" ? "field_guide" : "ai");
+      setCopilotSource(
+        payload.source === "deterministic" || payload.source === "deterministic_fallback"
+          ? "deterministic"
+          : payload.source === "field_guide"
+            ? "field_guide"
+            : "ai",
+      );
+      if (typeof payload.shorter === "string") setCopilotShorter(payload.shorter);
+      if (Array.isArray(payload.doNotSay)) setCopilotDoNotSay(payload.doNotSay);
+      if (typeof payload.freezeRecovery === "string") setCopilotFreezeRecovery(payload.freezeRecovery);
+      if (typeof payload.reason === "string") setCopilotStructuredReason(payload.reason);
+      if (typeof payload.askNext === "string" || payload.askNext === null) setCopilotQuestion(payload.askNext ?? null);
+      if (payload.structured?.call_stage) setActiveStage(payload.structured.call_stage);
       if (payload.structured) {
         setCopilotStructuredReason(payload.structured.reason ?? null);
         setCopilotNextAction(payload.structured.suggested_next_action ?? null);
@@ -1598,11 +1733,19 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
       const spokenOnly = utteranceTranscript(conversation);
       const transcriptNotes = spokenOnly.slice(-16).map((line) => `${line.speaker}: ${line.text}`).join("\n");
-      const fallback = manualFieldGuideResponse(transcriptNotes, copilotSuggestionHistoryRef.current);
-      setCopilotSuggestion(fallback);
+      const fallbackResult = suggestFromTranscriptContext({
+        transcript: transcriptNotes,
+        previousSuggestions: copilotSuggestionHistoryRef.current,
+      });
+      setCopilotSuggestion(fallbackResult.suggestion);
+      setCopilotShorter(fallbackResult.shorter);
+      setCopilotDoNotSay(fallbackResult.doNotSay);
+      setCopilotFreezeRecovery(fallbackResult.freezeRecovery);
+      setCopilotStructuredReason(fallbackResult.reason);
+      setCopilotQuestion(fallbackResult.askNext);
       setCopilotSource("field_guide");
-      copilotSuggestionHistoryRef.current = [...copilotSuggestionHistoryRef.current.slice(-3), fallback];
-      setTranscript((prev) => upsertInlineCoachSuggestion(prev, fallback));
+      copilotSuggestionHistoryRef.current = [...copilotSuggestionHistoryRef.current.slice(-3), fallbackResult.suggestion];
+      setTranscript((prev) => upsertInlineCoachSuggestion(prev, fallbackResult.suggestion));
       toast.info("Using the local field guide while the AI coaching provider is unavailable.");
     } finally {
       if (requestId === copilotRequestSeqRef.current) setCopilotLoading(false);
@@ -1632,7 +1775,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     const nextLine: TranscriptLine = { speaker: "Clinic", text, timestamp: new Date().toISOString() };
     setTranscript((previous) => {
       const next = [...previous, nextLine];
-      void requestManualCopilot(next);
+      queueCopilotRequest(next);
       return next;
     });
   };
@@ -2029,6 +2172,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       audioContextRef.current = null;
     }
     setMicTestLevel(0);
+    if (userSpeechDebounceRef.current) {
+      clearTimeout(userSpeechDebounceRef.current);
+      userSpeechDebounceRef.current = null;
+    }
+    userSpeechAccumRef.current = "";
   }
 
   function endCall() {
@@ -2138,7 +2286,12 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setCallState("configuring");
     setTranscript([]);
     setSpeechRecognitionUnavailable(false);
-    setCopilotSuggestion("Hi, this is Jamil with Novalyte. I’m calling to verify a few details for your free clinic directory listing. Is now okay for a quick question?");
+    setCopilotSuggestion("Hi — this is Jamil with Novalyte AI. I'm calling to ask permission to include your clinic in our free men's health directory. Do you have about two minutes?");
+    setCopilotShorter(openingLine().shorter);
+    setCopilotDoNotSay(openingLine().doNotSay);
+    setCopilotFreezeRecovery(openingLine().freezeRecovery);
+    setCopilotStructuredReason(openingLine().reason);
+    setCopilotSource("opening");
     setCopilotSource("opening");
     setCopilotQuestion("Confirm you reached the person who manages the clinic listing.");
     setActiveStage("intro");
@@ -3259,7 +3412,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 <div ref={transcriptEndRef} />
               </div>
 
-              {callState === "connected" && !isLiveFocus && (
+              {callState === "connected" && (
                 <form
                   className="border-t bg-background p-3 flex flex-col sm:flex-row gap-2"
                   onSubmit={(event) => {
@@ -3371,7 +3524,15 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   </div>
                 </div>
                 <Badge variant="secondary" className="bg-indigo-100 text-indigo-800 text-[9px] uppercase border border-indigo-200">
-                  {isPracticeMode ? "Simulation" : copilotSource === "ai" ? "Live AI" : copilotSource === "field_guide" ? "Field Guide" : "Opening"}
+                  {isPracticeMode
+                    ? "Simulation"
+                    : copilotSource === "deterministic"
+                      ? "Deterministic"
+                      : copilotSource === "ai"
+                        ? "Live AI"
+                        : copilotSource === "field_guide"
+                          ? "Field Guide"
+                          : "Opening"}
                 </Badge>
               </div>
 
@@ -3397,14 +3558,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 </div>
               )}
 
-              {/* Suggestions */}
+              {/* Suggestions — anti-freeze hierarchy */}
               <div className="space-y-3.5 text-xs">
                 <div>
                   <p className="text-[10px] text-indigo-700 font-bold uppercase tracking-wide flex items-center gap-1">
-                    <CheckCircle2 className="size-3.5 text-indigo-600" /> SAY THIS NEXT (Suggested Response)
+                    <CheckCircle2 className="size-3.5 text-indigo-600" /> Say this now
                   </p>
-                  <div className="bg-white border border-indigo-100 p-3 rounded-lg text-slate-800 italic font-medium mt-1 relative group shadow-sm leading-relaxed">
-                    "{copilotSuggestion}"
+                  <div className="bg-white border border-indigo-200 p-3 rounded-lg text-slate-800 font-medium mt-1 relative group shadow-sm leading-relaxed text-sm">
+                    {copilotSuggestion}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -3422,10 +3583,57 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                   </div>
                 </div>
 
+                {copilotShorter && (
+                  <div>
+                    <p className="text-[10px] text-slate-600 font-bold uppercase tracking-wide">Shorter version</p>
+                    <p className="mt-1 text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-2.5 leading-relaxed">{copilotShorter}</p>
+                  </div>
+                )}
+
+                {copilotQuestion && (
+                  <div>
+                    <p className="text-[10px] text-purple-700 font-bold uppercase tracking-wide">Ask next</p>
+                    <p className="text-slate-800 bg-purple-50/40 border border-purple-100 p-2.5 rounded-lg font-medium mt-1 leading-relaxed">
+                      {copilotQuestion}
+                    </p>
+                  </div>
+                )}
+
+                {copilotDoNotSay.length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-rose-700 font-bold uppercase tracking-wide">Do not say</p>
+                    <ul className="mt-1 space-y-1 text-rose-900/80 bg-rose-50/50 border border-rose-100 rounded-lg p-2.5">
+                      {copilotDoNotSay.map((item) => (
+                        <li key={item}>• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div>
+                  <p className="text-[10px] text-amber-800 font-bold uppercase tracking-wide">If you freeze</p>
+                  <p className="mt-1 text-amber-950 bg-amber-50 border border-amber-200 rounded-lg p-2.5 font-medium leading-relaxed">
+                    {copilotFreezeRecovery}
+                  </p>
+                </div>
+
+                <details className="rounded-lg border border-slate-200 bg-slate-50/80 p-2.5">
+                  <summary className="cursor-pointer text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                    Emergency fallback card
+                  </summary>
+                  <ul className="mt-2 space-y-1.5 text-[11px] text-slate-700 leading-relaxed">
+                    <li><span className="font-semibold">Opening:</span> {emergencyCard.opening}</li>
+                    <li><span className="font-semibold">Cost:</span> {emergencyCard.cost}</li>
+                    <li><span className="font-semibold">Decline:</span> {emergencyCard.decline}</li>
+                    <li><span className="font-semibold">DNC:</span> {emergencyCard.dnc}</li>
+                    <li><span className="font-semibold">Freeze:</span> {emergencyCard.freeze}</li>
+                  </ul>
+                </details>
+
                 {(copilotStructuredReason || copilotNextAction || copilotGroundingStatus) && (
                   <details className="rounded-lg border border-indigo-100 bg-white/70 p-2.5">
                     <summary className="cursor-pointer text-[10px] font-bold uppercase tracking-wide text-indigo-700">
-                      Why this suggestion · {copilotGroundingStatus ?? "grounded"}
+                      Reason (internal) · {copilotSource}
                     </summary>
                     {copilotStructuredReason && <p className="mt-2 text-slate-700 leading-relaxed">{copilotStructuredReason}</p>}
                     {copilotNextAction && <p className="mt-1 text-slate-600"><span className="font-semibold">Next:</span> {copilotNextAction}</p>}
@@ -3457,17 +3665,6 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                     </button>
                   ))}
                 </div>
-
-                {copilotQuestion && (
-                  <div>
-                    <p className="text-[10px] text-purple-700 font-bold uppercase tracking-wide">
-                      Recommended Follow-Up Question
-                    </p>
-                    <p className="text-slate-800 bg-purple-50/20 border border-purple-100/60 p-2.5 rounded-lg font-medium mt-1 leading-relaxed">
-                      {copilotQuestion}
-                    </p>
-                  </div>
-                )}
 
                 {objectionGuidance && (
                   <div className="bg-amber-50 border border-amber-200 text-amber-900 p-2.5 rounded-lg">
