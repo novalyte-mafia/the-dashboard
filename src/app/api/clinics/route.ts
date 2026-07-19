@@ -148,7 +148,13 @@ export async function POST(req: NextRequest) {
   await recalcReadiness(clinic.id);
   
   await db.clinicPipelineHistory.create({
-    data: { clinicId: clinic.id, toStage: body.pipelineStage, changedById: admin.id, notes: "Clinic created" },
+    data: {
+      clinicId: clinic.id,
+      fromStage: "imported",
+      toStage: body.pipelineStage,
+      changedById: admin.id,
+      notes: "Clinic created",
+    },
   });
 
   await logActivity({

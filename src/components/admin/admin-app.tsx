@@ -94,6 +94,7 @@ const ProfessionalsView = lazy(() => import("@/components/admin/views/profession
 const JobsView = lazy(() => import("@/components/admin/views/jobs").then((m) => ({ default: m.JobsView })));
 const ApplicationsView = lazy(() => import("@/components/admin/views/applications").then((m) => ({ default: m.ApplicationsView })));
 const CredentialsView = lazy(() => import("@/components/admin/views/credentials").then((m) => ({ default: m.CredentialsView })));
+const ClinicClaimsView = lazy(() => import("@/components/admin/views/clinic-claims").then((m) => ({ default: m.ClinicClaimsView })));
 const WorkforceAnalyticsView = lazy(() => import("@/components/admin/views/workforce-analytics").then((m) => ({ default: m.WorkforceAnalyticsView })));
 const MarketplaceOverviewView = lazy(() => import("@/components/admin/views/marketplace-overview").then((m) => ({ default: m.MarketplaceOverviewView })));
 const ProductsView = lazy(() => import("@/components/admin/views/products").then((m) => ({ default: m.ProductsView })));
@@ -121,6 +122,7 @@ const OutreachAnalyticsView = lazy(() => import("@/components/admin/views/outrea
 const CallAnalyticsView = lazy(() => import("@/components/admin/views/call-analytics").then((m) => ({ default: m.CallAnalyticsView })));
 const PatientAnalyticsView = lazy(() => import("@/components/admin/views/patient-analytics").then((m) => ({ default: m.PatientAnalyticsView })));
 const GeographicAnalyticsView = lazy(() => import("@/components/admin/views/geographic-analytics").then((m) => ({ default: m.GeographicAnalyticsView })));
+const TrafficAnalyticsView = lazy(() => import("@/components/admin/views/traffic-analytics").then((m) => ({ default: m.TrafficAnalyticsView })));
 const LiveWebsiteActivityView = lazy(() => import("@/components/admin/views/live-website-activity").then((m) => ({ default: m.LiveWebsiteActivityView })));
 const SettingsView = lazy(() => import("@/components/admin/views/settings").then((m) => ({ default: m.SettingsView })));
 const TeamAccessView = lazy(() => import("@/components/admin/views/team-access").then((m) => ({ default: m.TeamAccessView })));
@@ -184,6 +186,7 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "jobs": JobsView,
   "applications": ApplicationsView,
   "credentials": CredentialsView,
+  "clinic-claims": ClinicClaimsView,
   "workforce-analytics": WorkforceAnalyticsView,
   "marketplace-overview": MarketplaceOverviewView,
   "products": ProductsView,
@@ -211,6 +214,7 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "call-analytics": CallAnalyticsView,
   "patient-analytics": PatientAnalyticsView,
   "geographic-analytics": GeographicAnalyticsView,
+  "traffic-analytics": TrafficAnalyticsView,
   "live-website-activity": LiveWebsiteActivityView,
   "settings": SettingsView,
   "team-access": TeamAccessView,
@@ -267,7 +271,7 @@ export function AdminApp({ admin }: { admin: AdminUser }) {
           <div className="flex-1 flex flex-col min-w-0">
             <AdminHeader
               admin={admin}
-              onOpenLogCall={() => navigate("call-console")}
+              onOpenLogCall={() => navigate("calls")}
             />
             <main className="flex-1 overflow-y-auto nv-scroll">
               <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-6">

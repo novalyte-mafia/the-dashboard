@@ -132,7 +132,7 @@ export function ClinicsView() {
               <Plus className="size-4" />
               <span className="hidden sm:inline">Add Clinic</span>
             </Button>
-            <Button onClick={() => navigate("call-console")}>
+            <Button onClick={() => navigate("calls")}>
               <PhoneCall className="size-4" />
               <span className="hidden sm:inline">Call Console</span>
             </Button>

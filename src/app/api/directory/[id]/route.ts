@@ -21,8 +21,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           zip: true,
           primaryPhone: true,
           generalEmail: true,
-          website: true,
-          notes: true
+          website: true
         }
       }
     }
@@ -30,7 +29,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const allowed = ["listingStatus", "claimStatus", "verificationStatus", "publicationStatus",
+  const allowed = ["listingStatus", "claimStatus", "verificationStatus",
     "servicesCompleted", "providersCompleted", "locationCompleted", "hoursCompleted",
     "pricingCompleted", "imagesCompleted", "bookingLinkCompleted"];
 
@@ -49,41 +48,101 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const completed = fields.filter((f) => merged[f]).length;
   data.profileCompleteness = Math.round((completed / fields.length) * 100);
 
+  const requestedListingStatus =
+    typeof data.listingStatus === "string" ? data.listingStatus : null;
+  const permissionCall =
+    requestedListingStatus === "approved" || requestedListingStatus === "published"
+      ? await db.callSession.findFirst({
+          where: {
+            clinicId: existing.clinicId,
+            directoryPermissionStatus: "granted",
+            callEnvironment: "live",
+          },
+        })
+      : null;
+
+  if (requestedListingStatus === "approved") {
+    if (String(data.verificationStatus ?? existing.verificationStatus) !== "verified") {
+      return NextResponse.json(
+        { error: "Verify the clinic before approving its public profile." },
+        { status: 409 },
+      );
+    }
+    if (!permissionCall) {
+      return NextResponse.json(
+        { error: "A live call with explicit directory permission is required before approval." },
+        { status: 409 },
+      );
+    }
+    if (Number(data.profileCompleteness) !== 100) {
+      return NextResponse.json(
+        { error: "Complete and review every public profile section before approval." },
+        { status: 409 },
+      );
+    }
+
+    data.permissionSourceCallId = permissionCall.id;
+    data.permissionGrantedAt =
+      permissionCall.endedAt ?? permissionCall.startedAt ?? new Date();
+    data.approvedAt = new Date();
+    data.publicationStatus = "approved";
+  }
+
   // Publication is an approval boundary. Verification and publication are
   // intentionally separate states; importing a prospect must never make it
   // public or verified by itself.
-  if (data.listingStatus === "published" && existing.listingStatus !== "published") {
+  if (requestedListingStatus === "published" && existing.listingStatus !== "published") {
+    if (existing.listingStatus !== "approved") {
+      return NextResponse.json(
+        { error: "Approve the completed profile in a separate review step before publishing." },
+        { status: 409 },
+      );
+    }
     if (String(data.verificationStatus ?? existing.verificationStatus) !== "verified") {
       return NextResponse.json({ error: "A directory profile must be verified before it can be published." }, { status: 409 });
     }
+    if (!permissionCall) {
+      return NextResponse.json(
+        { error: "A live call with explicit directory permission is required before publication." },
+        { status: 409 },
+      );
+    }
+    if (Number(data.profileCompleteness) !== 100) {
+      return NextResponse.json(
+        { error: "Complete and review every public profile section before publication." },
+        { status: 409 },
+      );
+    }
     // Check if it already exists in public table to prevent duplicates
-    let publicClinic = await db.publicClinic.findFirst({
-      where: { name: existing.clinic.name, city: existing.clinic.city, state: existing.clinic.state }
-    });
+    let publicClinic = existing.publicClinicId
+      ? await db.publicClinic.findUnique({ where: { id: existing.publicClinicId } })
+      : await db.publicClinic.findFirst({
+          where: { name: existing.clinic.name, city: existing.clinic.city, state: existing.clinic.state }
+        });
 
     if (!publicClinic) {
       // Generate a unique slug
-      let slug = existing.clinic.name.toLowerCase()
+      const slugBase = `${existing.clinic.name}-${existing.clinic.city}-${existing.clinic.state}`.toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/(^-|-$)/g, "");
-      const count = await db.publicClinic.count({ where: { slug } });
-      if (count > 0) {
-        slug = `${slug}-${Math.random().toString(36).substring(2, 6)}`;
-      }
+      const count = await db.publicClinic.count({ where: { slug: slugBase } });
+      const slug = count > 0
+        ? `${slugBase}-${String(existing.clinic.id).slice(-6).toLowerCase()}`
+        : slugBase;
 
       // Create entry in the public Clinic table
       publicClinic = await db.publicClinic.create({
         data: {
           name: existing.clinic.name,
           slug,
-          overview: existing.clinic.notes || `Medical clinic specializing in health services in ${existing.clinic.city}, ${existing.clinic.state}.`,
+          overview: "",
           city: existing.clinic.city,
           state: existing.clinic.state,
           zip: existing.clinic.zip || "",
           phone: existing.clinic.primaryPhone,
-          email: existing.clinic.generalEmail,
+          email: null,
           website: existing.clinic.website,
-          specialties: "Men's Health",
+          specialties: "",
           verified: true,
           verificationStatus: "verified",
           claimStatus: existing.claimStatus || "unclaimed",
@@ -109,7 +168,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
       data.publicClinicId = publicClinic.id;
     }
+    data.publicClinicId = publicClinic.id;
+    data.permissionSourceCallId = permissionCall.id;
+    data.permissionGrantedAt =
+      permissionCall.endedAt ?? permissionCall.startedAt ?? new Date();
+    data.approvedAt = existing.approvedAt ?? new Date();
+    data.publishedAt = new Date();
+    data.suspendedAt = null;
     data.publicationStatus = "published";
+  }
+
+  if (
+    requestedListingStatus &&
+    ["needs_update", "suspended", "archived"].includes(requestedListingStatus)
+  ) {
+    data.publicationStatus =
+      requestedListingStatus === "suspended" ? "suspended" : "unpublished";
+    data.suspendedAt = new Date();
+    // Clear the publication timestamp so RLS and public loaders fail closed.
+    data.publishedAt = null;
   }
 
   // Sync clinic.directoryStatus with listingStatus

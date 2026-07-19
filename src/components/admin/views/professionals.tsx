@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   Users, UserCheck, ShieldCheck, MapPin, BriefcaseBusiness, Award, Linkedin, FileText,
+  CheckCircle2, XCircle, PauseCircle,
 } from "lucide-react";
 import { relativeTime } from "@/lib/format";
 import { toast } from "sonner";
@@ -36,6 +37,20 @@ const CRED_COLOR: Record<string, string> = {
   verified: "green", pending: "amber", expired: "rose", rejected: "rose",
 };
 
+const REVIEW_COLOR: Record<string, string> = {
+  approved: "green",
+  pending_review: "amber",
+  rejected: "rose",
+  suspended: "slate",
+};
+
+const REVIEW_LABEL: Record<string, string> = {
+  approved: "Approved",
+  pending_review: "Pending Review",
+  rejected: "Rejected",
+  suspended: "Suspended",
+};
+
 export function ProfessionalsView() {
   const { navigate, refreshKey } = useNav();
   const [data, setData] = useState<Professional[]>([]);
@@ -43,13 +58,42 @@ export function ProfessionalsView() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Professional | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function loadProfessionals() {
+    setLoading(true);
+    try {
+      const result = await workforceService.listProfessionals();
+      setData(result.professionals);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to load professionals.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    setLoading(true);
-    workforceService.listProfessionals()
-      .then((d) => setData(d.professionals))
-      .finally(() => setLoading(false));
+    void loadProfessionals();
   }, [refreshKey]);
+
+  async function updateReviewStatus(
+    professional: Professional,
+    reviewStatus: "approved" | "rejected" | "suspended" | "pending_review",
+  ) {
+    setSubmitting(true);
+    try {
+      await workforceService.setProfessionalReviewStatus(professional.id, reviewStatus);
+      await loadProfessionals();
+      setSelected((current) =>
+        current?.id === professional.id ? { ...current, reviewStatus } : current,
+      );
+      toast.success(`${professional.name} marked ${REVIEW_LABEL[reviewStatus] ?? reviewStatus}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to update review status.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -157,6 +201,18 @@ export function ProfessionalsView() {
             render: (p) => <StatusBadge label={p.credentialStatus} color={CRED_COLOR[p.credentialStatus] ?? "slate"} />,
           },
           {
+            key: "reviewStatus",
+            header: "Review",
+            hideOnMobile: true,
+            sortValue: (p) => p.reviewStatus ?? "pending_review",
+            render: (p) => (
+              <StatusBadge
+                label={REVIEW_LABEL[p.reviewStatus ?? "pending_review"] ?? p.reviewStatus ?? "Pending Review"}
+                color={REVIEW_COLOR[p.reviewStatus ?? "pending_review"] ?? "slate"}
+              />
+            ),
+          },
+          {
             key: "matchScore",
             header: "Match",
             sortValue: (p) => p.matchScore ?? 0,
@@ -194,6 +250,15 @@ export function ProfessionalsView() {
               <div>
                 <div className="text-xs text-muted-foreground">Credentials</div>
                 <div><StatusBadge label={selected.credentialStatus} color={CRED_COLOR[selected.credentialStatus]} /></div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Review Status</div>
+                <div>
+                  <StatusBadge
+                    label={REVIEW_LABEL[selected.reviewStatus ?? "pending_review"] ?? selected.reviewStatus ?? "Pending Review"}
+                    color={REVIEW_COLOR[selected.reviewStatus ?? "pending_review"] ?? "slate"}
+                  />
+                </div>
               </div>
               {selected.matchScore != null && (
                 <div>
@@ -233,7 +298,7 @@ export function ProfessionalsView() {
               )}
             </div>
 
-            <div className="flex gap-2 pt-2 border-t">
+            <div className="flex flex-wrap gap-2 pt-2 border-t">
               {selected.linkedinUrl && (
                 <Button variant="outline" size="sm" asChild>
                   <a href={selected.linkedinUrl} target="_blank" rel="noopener noreferrer">
@@ -248,8 +313,48 @@ export function ProfessionalsView() {
                   </a>
                 </Button>
               )}
+              {(selected.reviewStatus === "pending_review" || selected.reviewStatus === "rejected" || !selected.reviewStatus) && (
+                <>
+                  <Button
+                    size="sm"
+                    disabled={submitting}
+                    onClick={() => void updateReviewStatus(selected, "approved")}
+                  >
+                    <CheckCircle2 className="size-3.5" /> Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-rose-600 hover:text-rose-700"
+                    disabled={submitting}
+                    onClick={() => void updateReviewStatus(selected, "rejected")}
+                  >
+                    <XCircle className="size-3.5" /> Reject
+                  </Button>
+                </>
+              )}
+              {selected.reviewStatus === "approved" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={submitting}
+                  onClick={() => void updateReviewStatus(selected, "suspended")}
+                >
+                  <PauseCircle className="size-3.5" /> Suspend
+                </Button>
+              )}
+              {selected.reviewStatus === "suspended" && (
+                <Button
+                  size="sm"
+                  disabled={submitting}
+                  onClick={() => void updateReviewStatus(selected, "approved")}
+                >
+                  <CheckCircle2 className="size-3.5" /> Reinstate
+                </Button>
+              )}
               <Button
                 size="sm"
+                variant="outline"
                 className="ml-auto"
                 onClick={() => toast.success(`Match search started for ${selected.name}.`)}
               >

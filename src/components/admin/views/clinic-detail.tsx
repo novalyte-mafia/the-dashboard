@@ -165,7 +165,7 @@ export function ClinicDetailView({ clinicId }: { clinicId?: string | null }) {
                 ))}
               </SelectContent>
             </Select>
-            <Button onClick={() => navigate("call-console", clinicId)} disabled={clinic.doNotCall || !clinic.primaryPhone}>
+            <Button onClick={() => navigate("calls", clinicId)} disabled={clinic.doNotCall || !clinic.primaryPhone}>
               <PhoneCall className="size-4" /> Start Call
             </Button>
           </div>
@@ -316,7 +316,7 @@ export function ClinicDetailView({ clinicId }: { clinicId?: string | null }) {
           <Card className="p-0">
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <h3 className="text-sm font-semibold">Call History</h3>
-              <Button size="sm" onClick={() => navigate("call-console", clinicId)} disabled={clinic.doNotCall || !clinic.primaryPhone}>
+              <Button size="sm" onClick={() => navigate("calls", clinicId)} disabled={clinic.doNotCall || !clinic.primaryPhone}>
                 <PhoneCall className="size-4" /> Start Call
               </Button>
             </div>

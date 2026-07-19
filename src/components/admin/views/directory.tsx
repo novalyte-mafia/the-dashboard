@@ -17,7 +17,7 @@ import { directoryService, clinicService } from "@/services";
 import { DIRECTORY_STAGES, directoryStageLabel } from "@/lib/constants";
 import { formatDate, relativeTime } from "@/lib/format";
 import { toast } from "sonner";
-import type { DirectoryProfile, Clinic } from "@/types";
+import type { DirectoryProfile, DirectoryStatus, Clinic } from "@/types";
 
 const COMPLETENESS_FIELDS: { key: keyof DirectoryProfile; label: string }[] = [
   { key: "servicesCompleted", label: "Services" },
@@ -47,14 +47,22 @@ export function DirectoryView() {
     }).finally(() => setLoading(false));
   }, [stage, refreshKey]);
 
-  async function updateStatus(id: string, listingStatus: string) {
+  async function updateProfile(id: string, patch: Partial<DirectoryProfile>, success: string) {
     try {
-      await directoryService.update(id, { listingStatus });
-      toast.success(`Listing status → ${directoryStageLabel(listingStatus)}`);
+      await directoryService.update(id, patch);
+      toast.success(success);
       refresh();
     } catch (err: any) {
       toast.error(err.message || "Failed to update listing status");
     }
+  }
+
+  async function updateStatus(id: string, listingStatus: DirectoryStatus) {
+    await updateProfile(
+      id,
+      { listingStatus },
+      `Listing status → ${directoryStageLabel(listingStatus)}`,
+    );
   }
 
   return (
@@ -130,18 +138,26 @@ export function DirectoryView() {
                   {COMPLETENESS_FIELDS.map((f) => {
                     const done = Boolean(p[f.key]);
                     return (
-                      <div
+                      <button
                         key={f.key as string}
+                        type="button"
+                        onClick={() =>
+                          void updateProfile(
+                            p.id,
+                            { [f.key]: !done },
+                            `${f.label} marked ${done ? "incomplete" : "complete"}`,
+                          )
+                        }
                         className={`text-[10px] rounded px-1 py-1 border font-medium flex items-center justify-center gap-0.5 ${
                           done
                             ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                             : "bg-muted text-muted-foreground border-border"
                         }`}
-                        title={f.label}
+                        title={`Mark ${f.label.toLowerCase()} ${done ? "incomplete" : "complete"}`}
                       >
                         {done ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3 opacity-40" />}
                         {f.label.slice(0, 4)}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -149,7 +165,28 @@ export function DirectoryView() {
                 {/* Status badges */}
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3 flex-wrap">
                   <StatusBadge label={p.claimStatus} color={p.claimStatus === "verified" ? "green" : p.claimStatus === "unclaimed" ? "slate" : "amber"} />
-                  <StatusBadge label={p.verificationStatus} color={p.verificationStatus === "verified" ? "green" : p.verificationStatus === "rejected" ? "rose" : "amber"} />
+                  <Select
+                    value={p.verificationStatus}
+                    onValueChange={(value) =>
+                      void updateProfile(
+                        p.id,
+                        {
+                          verificationStatus:
+                            value as DirectoryProfile["verificationStatus"],
+                        },
+                        `Verification → ${value.replace(/_/g, " ")}`,
+                      )
+                    }
+                  >
+                    <SelectTrigger className="h-7 w-28 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="verified">Verified</SelectItem>
+                      <SelectItem value="rejected">Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <StatusBadge label={p.publicationStatus} color={p.publicationStatus === "published" ? "green" : p.publicationStatus === "ready" ? "teal" : "slate"} />
                   {p.lastReviewedAt && (
                     <span className="flex items-center gap-1">
@@ -163,7 +200,7 @@ export function DirectoryView() {
                     <ExternalLink className="size-3.5" /> Open Clinic
                   </Button>
                   <div className="flex-1" />
-                  <Select value={p.listingStatus} onValueChange={(v) => updateStatus(p.id, v)}>
+                  <Select value={p.listingStatus} onValueChange={(v) => updateStatus(p.id, v as DirectoryStatus)}>
                     <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {DIRECTORY_STAGES.map((s) => (

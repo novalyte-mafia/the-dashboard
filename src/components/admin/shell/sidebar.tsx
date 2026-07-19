@@ -36,7 +36,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "overview", label: "Executive Overview", icon: LayoutDashboard },
       { id: "priorities", label: "Today's Priorities", icon: ListChecks },
-      { id: "calls", label: "Calls", icon: PhoneCall },
+      { id: "calls", label: "Founder-Led Calls", icon: PhoneCall },
       { id: "revenue-overview", label: "Revenue Overview", icon: TrendingUp },
       { id: "operations-overview", label: "Operations Overview", icon: ActivityIcon },
       { id: "alerts", label: "Alerts", icon: ShieldCheck },
@@ -48,7 +48,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "clinics", label: "Clinic Database", icon: Building2 },
       { id: "call-queue", label: "Outreach Queue", icon: PhoneCall },
-      { id: "call-console", label: "Call Console", icon: PhoneCall },
+      { id: "call-console", label: "AI Call Console (advanced)", icon: PhoneCall },
       { id: "follow-ups", label: "Follow-Ups", icon: CalendarCheck },
       { id: "contacts", label: "Contacts", icon: Users },
       { id: "decision-makers", label: "Decision-Makers", icon: Users },
@@ -122,6 +122,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "jobs", label: "Job Listings", icon: Briefcase },
       { id: "applications", label: "Job Applications", icon: FileText },
       { id: "credentials", label: "Credential Review", icon: ShieldCheck },
+      { id: "clinic-claims", label: "Clinic Claims", icon: Building2 },
       { id: "workforce-analytics", label: "Workforce Analytics", icon: BarChart3 },
     ],
   },
@@ -163,6 +164,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: "analytics", label: "Analytics", icon: BarChart3,
     items: [
+      { id: "traffic-analytics", label: "Traffic Analytics", icon: ActivityIcon },
       { id: "executive-analytics", label: "Executive Analytics", icon: BarChart3 },
       { id: "revenue-analytics", label: "Revenue Analytics", icon: DollarSign },
       { id: "outreach-analytics", label: "Outreach Analytics", icon: PhoneCall },

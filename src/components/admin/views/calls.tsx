@@ -74,6 +74,7 @@ import {
   type ConsentStatus,
 } from "@/lib/calls/recording-consent";
 import { suggestFromTranscriptContext, extractClinicFacts } from "@/lib/calls/transcript-context";
+import { DialpadCallView } from "@/components/admin/views/dialpad/dialpad-call-view";
 
 // ---------------------------------------------------------------------------
 // PRACTICE PERSONAS
@@ -290,6 +291,8 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   // Operating Modes
   const [isPracticeMode, setIsPracticeMode] = useState(false);
   const [isLiveMode, setIsLiveMode] = useState(true);
+  const [isDialpadMode, setIsDialpadMode] = useState(true);
+  const [showPracticeAdvanced, setShowPracticeAdvanced] = useState(false);
 
   // Audio setup test state
   const [audioTestingOpen, setAudioTestingOpen] = useState(false);
@@ -353,6 +356,15 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const [keypadInput, setKeypadInput] = useState("");
   const [callSessionId, setCallSessionId] = useState<string | null>(null);
   const [providerCallId, setProviderCallId] = useState<string | null>(null);
+  const callSessionIdRef = useRef<string | null>(null);
+  const providerCallIdRef = useRef<string | null>(null);
+  const liveFinalizeInFlightRef = useRef(false);
+  const stereoMergerRef = useRef<ChannelMergerNode | null>(null);
+  const remoteSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const remoteTrackCleanupRef = useRef<(() => void) | null>(null);
+  const finalizeLiveCallSessionRef = useRef<
+    ((reason: "manual" | "remote_hangup" | "error" | "unload") => Promise<void>) | null
+  >(null);
 
   // Live Copilot & Transcript
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
@@ -431,6 +443,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   const isClinicSpeakingRef = useRef(false);
 
   useEffect(() => {
+    callSessionIdRef.current = callSessionId;
+  }, [callSessionId]);
+
+  useEffect(() => {
+    providerCallIdRef.current = providerCallId;
+  }, [providerCallId]);
+
+  useEffect(() => {
     callDurationRef.current = callDuration;
   }, [callDuration]);
 
@@ -454,6 +474,21 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     if (speakerTestTimeoutRef.current) clearTimeout(speakerTestTimeoutRef.current);
     if (practiceConnectTimeoutRef.current) clearTimeout(practiceConnectTimeoutRef.current);
   }, []);
+
+  // Best-effort save if the founder closes/refreshes mid live call.
+  useEffect(() => {
+    if (!isLiveMode) return;
+    const onPageHide = () => {
+      if (!["connected", "on_hold", "dialing", "ringing"].includes(callStateRef.current)) return;
+      void finalizeLiveCallSessionRef.current?.("unload");
+    };
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onPageHide);
+    };
+  }, [isLiveMode]);
 
   // Controlled transcript auto-follow:
   // - Only follow when user is already near the bottom.
@@ -1267,21 +1302,59 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         throw new Error(dgTokenData.error || "Failed to fetch Deepgram token.");
       }
 
-      // 2. Get remote clinic stream from Telnyx Call
-      let remoteStream = call.remoteStream;
-      if (!remoteStream) {
-        const pc = call.peerConnection || call._peerConnection?.pc;
-        if (pc && typeof pc.getReceivers === "function") {
-          const audioTracks = pc.getReceivers()
-            .map((r: any) => r.track)
-            .filter((t: any) => t && t.kind === "audio");
-          remoteStream = new MediaStream(audioTracks);
+      const getPeerConnection = (): RTCPeerConnection | undefined =>
+        call?.peerConnection || call?._peerConnection?.pc || call?.pc;
+
+      const collectRemoteStream = (): MediaStream | null => {
+        const existing = call?.remoteStream as MediaStream | undefined;
+        if (existing?.getAudioTracks?.().some((t) => t.readyState !== "ended")) {
+          return existing;
         }
-      }
+        const pc = getPeerConnection();
+        if (pc && typeof pc.getReceivers === "function") {
+          const audioTracks = pc
+            .getReceivers()
+            .map((r) => r.track)
+            .filter((t): t is MediaStreamTrack => Boolean(t && t.kind === "audio" && t.readyState !== "ended"));
+          if (audioTracks.length > 0) return new MediaStream(audioTracks);
+        }
+        return null;
+      };
 
-      await attachRemoteAudio(remoteStream);
+      const waitForRemoteAudioStream = (timeoutMs = 15000): Promise<MediaStream | null> => {
+        const immediate = collectRemoteStream();
+        if (immediate) return Promise.resolve(immediate);
 
-      // 3. Web Audio stereo merger setup
+        return new Promise((resolve) => {
+          let settled = false;
+          const pc = getPeerConnection();
+
+          const finish = (stream: MediaStream | null) => {
+            if (settled) return;
+            settled = true;
+            window.clearInterval(poll);
+            window.clearTimeout(timer);
+            pc?.removeEventListener("track", onTrack);
+            resolve(stream);
+          };
+
+          const onTrack = (event: RTCTrackEvent) => {
+            if (event.track?.kind !== "audio") return;
+            const stream = event.streams?.[0] ?? new MediaStream([event.track]);
+            finish(stream);
+          };
+
+          const poll = window.setInterval(() => {
+            const stream = collectRemoteStream();
+            if (stream) finish(stream);
+          }, 250);
+
+          const timer = window.setTimeout(() => finish(collectRemoteStream()), timeoutMs);
+          pc?.addEventListener("track", onTrack);
+        });
+      };
+
+      // 2. Web Audio stereo merger — mic first, clinic channel attached when ready
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioCtx();
       audioCtxRef.current = audioCtx;
@@ -1289,14 +1362,43 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
       const micSource = audioCtx.createMediaStreamSource(micStream);
       const merger = audioCtx.createChannelMerger(2);
+      stereoMergerRef.current = merger;
       micSource.connect(merger, 0, 0); // You (founder) mic → Left channel (0)
 
-      if (remoteStream && remoteStream.getAudioTracks().length > 0) {
+      const connectClinicRemote = (remoteStream: MediaStream) => {
+        if (!remoteStream.getAudioTracks().length) return false;
+        void attachRemoteAudio(remoteStream);
+        try {
+          remoteSourceRef.current?.disconnect();
+        } catch {
+          // ignore
+        }
         const remoteSource = audioCtx.createMediaStreamSource(remoteStream);
         remoteSource.connect(merger, 0, 1); // Clinic → Right channel (1)
+        remoteSourceRef.current = remoteSource;
+        return true;
+      };
+
+      let remoteStream = await waitForRemoteAudioStream(8000);
+      if (remoteStream && connectClinicRemote(remoteStream)) {
+        toast.success("Clinic audio linked — live coaching active.");
       } else {
-        toast.warning("Clinic audio stream not available yet — transcription may be one-sided.");
+        toast.warning("Waiting for clinic audio — coaching will activate when the track arrives.");
       }
+
+      // Keep listening for late / renegotiated clinic tracks after call is active.
+      const pc = getPeerConnection();
+      const onLateTrack = (event: RTCTrackEvent) => {
+        if (event.track?.kind !== "audio") return;
+        const stream = event.streams?.[0] ?? new MediaStream([event.track]);
+        if (connectClinicRemote(stream)) {
+          toast.success("Clinic audio linked — live coaching active.");
+        }
+      };
+      pc?.addEventListener("track", onLateTrack);
+      remoteTrackCleanupRef.current = () => {
+        pc?.removeEventListener("track", onLateTrack);
+      };
 
       const dest = audioCtx.createMediaStreamDestination();
       merger.connect(dest);
@@ -1305,7 +1407,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       // Archival recording (mandatory for official live calls) — parallel to Deepgram stream
       if (isLiveMode) startArchivalRecording(stereoStream);
 
-      // 4. Connect Deepgram WebSocket with multichannel=true
+      // 3. Connect Deepgram WebSocket with multichannel=true
       const queryParams = new URLSearchParams({
         model: "nova-2",
         smart_format: "true",
@@ -1391,23 +1493,25 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               nextNonCoach.push(nextLine);
             }
 
-            // Only clinic turns should drive copilot suggestions.
-            if (speaker === "Clinic") {
-              const lastText = nextNonCoach.at(-1)?.text ?? "";
-              const isDigitFragment = /^[\d\s.,-]{1,16}$/.test(lastText.trim());
-              const looksComplete =
-                !isDigitFragment &&
-                (/[?!.]\s*$/.test(lastText) ||
-                  lastText.length >= 20 ||
-                  /\b(free|fee|fees|cost|price|charge|yes|accept|patients|services|number)\b/i.test(lastText));
+            // Keep transcriptRef in sync immediately for hangup/finalize races.
+            const nextWithCoach =
+              speaker === "Clinic"
+                ? (() => {
+                    const lastText = nextNonCoach.at(-1)?.text ?? "";
+                    const isDigitFragment = /^[\d\s.,-]{1,16}$/.test(lastText.trim());
+                    const looksComplete =
+                      !isDigitFragment &&
+                      (/[?!.]\s*$/.test(lastText) ||
+                        lastText.length >= 20 ||
+                        /\b(free|fee|fees|cost|price|charge|yes|accept|patients|services|number)\b/i.test(lastText));
+                    const withCoach = upsertInlineCoachSuggestion(nextNonCoach, COACH_LISTENING_TEXT);
+                    if (looksComplete || isDigitFragment) queueCopilotRequest(withCoach);
+                    return withCoach;
+                  })()
+                : nextNonCoach;
 
-              // Keep one active suggestion card at the end; update it after the clinic finishes (debounced).
-              const nextWithCoach = upsertInlineCoachSuggestion(nextNonCoach, COACH_LISTENING_TEXT);
-              if (looksComplete || isDigitFragment) queueCopilotRequest(nextWithCoach);
-              return nextWithCoach;
-            }
-
-            return nextNonCoach;
+            transcriptRef.current = nextWithCoach;
+            return nextWithCoach;
           });
         } catch (e) {
           console.error("Error parsing Deepgram stereo transcript:", e);
@@ -1684,8 +1788,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   };
 
   // Helpers
-  async function persistCallSession(data: Record<string, unknown>) {
-    if (!callSessionId) return;
+  async function persistCallSession(data: Record<string, unknown>, sessionIdOverride?: string | null) {
+    const sid = sessionIdOverride ?? callSessionIdRef.current;
+    if (!sid) return;
     const payload: Record<string, unknown> = { ...data };
     if (payload.transcript !== undefined && typeof payload.transcript !== "string") {
       payload.transcript = JSON.stringify(payload.transcript);
@@ -1696,10 +1801,25 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     if (payload.aiSuggestions !== undefined && typeof payload.aiSuggestions !== "string") {
       payload.aiSuggestions = JSON.stringify(payload.aiSuggestions);
     }
-    await fetch(`/api/calls/${callSessionId}`, {
+    await fetch(`/api/calls/${sid}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    }).catch(() => undefined);
+  }
+
+  async function persistCallArtifacts(sessionId?: string | null) {
+    const sid = sessionId ?? callSessionIdRef.current;
+    if (!sid) return;
+    const spoken = utteranceTranscript(transcriptRef.current);
+    await fetch(`/api/calls/${sid}/artifacts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        transcript: spoken,
+        suggestions: copilotSuggestionsLogRef.current,
+        provider: "deepgram",
+      }),
     }).catch(() => undefined);
   }
 
@@ -1718,6 +1838,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         console.warn("Could not create call session:", payload.error);
         return null;
       }
+      callSessionIdRef.current = payload.callSessionId as string;
       setCallSessionId(payload.callSessionId);
       return payload.callSessionId as string;
     } catch (error) {
@@ -1727,7 +1848,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   }
 
   async function recordConsentEvent(status: ConsentStatus, wording?: string, sessionId?: string) {
-    const sid = sessionId ?? callSessionId;
+    const sid = sessionId ?? callSessionIdRef.current;
     if (!sid) return;
     setConsentStatus(status);
     await fetch(`/api/calls/${sid}/consent`, {
@@ -1790,23 +1911,26 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     });
   }
 
-  async function finalizeCallRecordingAndAnalysis() {
-    if (!callSessionId || !isLiveMode) return;
+  async function finalizeCallRecordingAndAnalysis(sessionIdOverride?: string | null) {
+    const sid = sessionIdOverride ?? callSessionIdRef.current;
+    if (!sid || !isLiveMode) return;
     setRecordingStatus("uploading");
     const audioBlob = await stopArchivalRecording();
     const finalTranscript = utteranceTranscript(transcriptRef.current);
     let analysisPayload: Record<string, unknown> | null = null;
     let nextRecordingStatus: LiveRecordingStatus = "finalized";
 
+    await persistCallArtifacts(sid);
+
     if (audioBlob && audioBlob.size > 0) {
       const form = new FormData();
       form.append("audio", audioBlob, "call-recording.webm");
-      form.append("idempotencyKey", callIdempotencyKeyRef.current ?? `${callSessionId}-primary`);
+      form.append("idempotencyKey", callIdempotencyKeyRef.current ?? `${sid}-primary`);
       form.append("fileType", recordingMimeTypeRef.current);
       form.append("audioDurationSec", String(callDurationRef.current));
       form.append("consentStatus", consentStatus);
 
-      const uploadRes = await fetch(`/api/calls/${callSessionId}/recording`, { method: "POST", body: form });
+      const uploadRes = await fetch(`/api/calls/${sid}/recording`, { method: "POST", body: form });
       nextRecordingStatus = uploadRes.ok ? "uploaded" : "cloud_save_failed";
       if (!uploadRes.ok) toast.error("Cloud recording upload failed — local backup will be attempted.");
 
@@ -1818,9 +1942,24 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         cloudUploadStatus: uploadRes.ok ? "uploaded" : "cloud_save_failed",
         metadata: { clinicId: activeClinic?.id, durationSec: callDurationRef.current },
       }));
-      const backupRes = await fetch(`/api/calls/${callSessionId}/local-backup`, { method: "POST", body: backupForm });
+      const backupRes = await fetch(`/api/calls/${sid}/backup`, { method: "POST", body: backupForm });
       if (backupRes.ok && uploadRes.ok) nextRecordingStatus = "local_backup_saved";
       else if (!backupRes.ok && !uploadRes.ok) nextRecordingStatus = "local_save_failed";
+
+      // True browser-local backup download so audio isn't only in the cloud.
+      try {
+        const url = URL.createObjectURL(audioBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `novalyte-call-${sid}.webm`;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } catch {
+        // download is best-effort
+      }
     } else {
       nextRecordingStatus = "audio_unavailable";
       toast.error("No audio captured for this call.");
@@ -1828,7 +1967,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
     setRecordingStatus(nextRecordingStatus);
 
-    const analyzeRes = await fetch(`/api/calls/${callSessionId}/analyze`, {
+    const analyzeRes = await fetch(`/api/calls/${sid}/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1858,14 +1997,59 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
     await persistCallSession({
       status: "ended",
+      providerCallId: providerCallIdRef.current,
+      aiSuggestions: copilotSuggestionsLogRef.current,
       structuredData: {
         consentStatus,
-        recordingStatus: "finalized",
+        recordingStatus: nextRecordingStatus === "audio_unavailable" ? nextRecordingStatus : "finalized",
         postCallAnalysis: analysisPayload,
         qualification,
+        providerCallId: providerCallIdRef.current,
       },
-    });
+    }, sid);
   }
+
+  async function finalizeLiveCallSession(reason: "manual" | "remote_hangup" | "error" | "unload") {
+    if (!isLiveMode) return;
+    if (liveFinalizeInFlightRef.current) return;
+    const sid = callSessionIdRef.current;
+    if (!sid) return;
+    liveFinalizeInFlightRef.current = true;
+
+    try {
+      remoteTrackCleanupRef.current?.();
+      remoteTrackCleanupRef.current = null;
+      stopSpeechRecognition();
+      stopRemoteAudio();
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+
+      const finalTranscript = utteranceTranscript(transcriptRef.current);
+      await persistCallSession({
+        status: "ended",
+        endedAt: new Date().toISOString(),
+        durationSec: callDurationRef.current,
+        transcript: finalTranscript,
+        providerCallId: providerCallIdRef.current,
+        aiSuggestions: copilotSuggestionsLogRef.current,
+        structuredData: {
+          isPractice: false,
+          callEnvironment: "live",
+          consentStatus,
+          recordingStatus,
+          finalizeReason: reason,
+          providerCallId: providerCallIdRef.current,
+        },
+      }, sid);
+
+      await finalizeCallRecordingAndAnalysis(sid);
+    } catch (error) {
+      console.warn("Live call finalize failed:", error);
+    }
+  }
+  finalizeLiveCallSessionRef.current = finalizeLiveCallSession;
 
   function openConsentGateForLiveCall() {
     if (!activeClinic?.primaryPhone) {
@@ -1990,7 +2174,15 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
     setOnHold(false);
     setKeypadInput("");
     setCallSessionId(null);
+    callSessionIdRef.current = null;
     setProviderCallId(null);
+    providerCallIdRef.current = null;
+    liveFinalizeInFlightRef.current = false;
+    remoteTrackCleanupRef.current?.();
+    remoteTrackCleanupRef.current = null;
+    try { remoteSourceRef.current?.disconnect(); } catch { /* ignore */ }
+    remoteSourceRef.current = null;
+    stereoMergerRef.current = null;
     callIdempotencyKeyRef.current = null;
     archivalRecorderRef.current = null;
     recordingChunksRef.current = [];
@@ -2050,32 +2242,37 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
 
     if (practiceConnectTimeoutRef.current) clearTimeout(practiceConnectTimeoutRef.current);
     practiceConnectTimeoutRef.current = null;
+    remoteTrackCleanupRef.current?.();
+    remoteTrackCleanupRef.current = null;
 
     setCallState("ended");
     stopSpeechRecognition();
     if (timerRef.current) clearInterval(timerRef.current);
 
-    const finalTranscript = transcriptRef.current;
-    void persistCallSession({
-      status: "ended",
-      endedAt: new Date().toISOString(),
-      durationSec: callDurationRef.current,
-      transcript: finalTranscript,
-      structuredData: {
-        isPractice: isPracticeMode,
-        callEnvironment: isPracticeMode ? "practice" : "live",
-        practiceScenario,
-        practicePersona,
-        practiceDifficulty,
-        callQualityScore,
-        speakingListeningRatio,
-        interruptionCount: practiceInterruptionCount,
+    if (isLiveMode) {
+      void finalizeLiveCallSession("manual");
+    } else {
+      const finalTranscript = transcriptRef.current;
+      void persistCallSession({
+        status: "ended",
+        endedAt: new Date().toISOString(),
+        durationSec: callDurationRef.current,
         transcript: finalTranscript,
-        consentStatus,
-        recordingStatus,
-      },
-    });
-    if (isLiveMode) void finalizeCallRecordingAndAnalysis();
+        structuredData: {
+          isPractice: isPracticeMode,
+          callEnvironment: "practice",
+          practiceScenario,
+          practicePersona,
+          practiceDifficulty,
+          callQualityScore,
+          speakingListeningRatio,
+          interruptionCount: practiceInterruptionCount,
+          transcript: finalTranscript,
+          consentStatus,
+          recordingStatus,
+        },
+      });
+    }
     toast.info(`Session ended · ${formatDuration(callDurationRef.current)}`);
   }
 
@@ -2200,10 +2397,14 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
         client.connect();
       });
 
-      // 4. Dial outbound clinic PSTN number
+      // 4. Dial outbound clinic PSTN number — use the same selected mic Deepgram hears
       const call = client.newCall({
         destinationNumber: activeClinic.primaryPhone,
         callerNumber: tokenData.callerNumber,
+        localStream: stream,
+        audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
+        ...(selectedMic ? { micId: selectedMic } : {}),
+        ...(selectedSpeaker ? { speakerId: selectedSpeaker } : {}),
       }) as any;
       telnyxCallRef.current = call;
       setCallState("dialing");
@@ -2215,17 +2416,31 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       });
 
       call.on("active", () => {
+        const telnyxId =
+          call?.id ||
+          call?.telnyxCallControlId ||
+          call?.options?.telnyxCallControlId ||
+          call?.options?.id ||
+          null;
+        if (telnyxId) {
+          providerCallIdRef.current = String(telnyxId);
+          setProviderCallId(String(telnyxId));
+        }
         setCallState("connected");
-        void persistCallSession({ status: "connected" });
+        void persistCallSession({
+          status: "connected",
+          providerCallId: telnyxId ? String(telnyxId) : providerCallIdRef.current,
+        });
         toast.success("Live softphone connected — AI is coaching silently.");
         void startDeepgramStereoTranscription(call, stream);
       });
 
       call.on("hangup", () => {
         toast.info("Call disconnected.");
-        stopSpeechRecognition();
-        stopRemoteAudio();
+        telnyxCallRef.current = null;
         setCallState("ended");
+        // Clinic/remote hangup must still run the full save pipeline.
+        void finalizeLiveCallSession("remote_hangup");
       });
 
       call.on("error", (err: any) => {
@@ -2239,7 +2454,9 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           failureCode: "TELNYX_CALL_ERROR",
           failureMessage: err?.message || "Call failed",
           endedAt: new Date().toISOString(),
+          providerCallId: providerCallIdRef.current,
         });
+        void finalizeLiveCallSession("error");
       });
 
     } catch (err: any) {
@@ -2400,6 +2617,60 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   // so the founder can read coach replies without visual noise.
   const isLiveFocus = ["configuring", "dialing", "ringing", "connected", "on_hold"].includes(callState);
 
+  // Dialpad mode renders its own self-contained workspace: calls ring the
+  // Dialpad app, the dashboard tracks the synchronized session.
+  if (isDialpadMode) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 border-b pb-4">
+          <div>
+            <h1 className="font-bold tracking-tight text-2xl">Founder-Led Call Mode</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              You are speaking. Dialpad handles the phone. No AI voice. Novalyte keeps briefing, talk tracks, notes, outcomes, and artifacts.
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <Badge className="bg-sky-700 text-white">Primary · Dialpad</Badge>
+            <button
+              type="button"
+              className="text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+              onClick={() => setShowPracticeAdvanced((v) => !v)}
+            >
+              {showPracticeAdvanced ? "Hide Practice / Advanced" : "Practice / Advanced (Telnyx · Simulation)"}
+            </button>
+            {showPracticeAdvanced && (
+              <div className="flex items-center gap-1.5 bg-card border rounded-lg px-2 py-1.5 shadow-sm">
+                <button
+                  onClick={() => {
+                    setIsDialpadMode(false);
+                    setIsPracticeMode(false);
+                    setIsLiveMode(true);
+                    toast.message("Telnyx Live is advanced practice — Founder-Led Dialpad remains the primary path.");
+                  }}
+                  className="text-xs px-2.5 py-1.5 rounded font-bold hover:bg-accent text-muted-foreground"
+                >
+                  Telnyx Live
+                </button>
+                <button
+                  onClick={() => {
+                    setIsDialpadMode(false);
+                    setIsPracticeMode(true);
+                    setIsLiveMode(false);
+                    toast.message("Simulation is practice only — not used for real clinic outreach.");
+                  }}
+                  className="text-xs px-2.5 py-1.5 rounded font-bold hover:bg-accent text-muted-foreground"
+                >
+                  Simulation
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <DialpadCallView initialClinicId={initialClinicId ?? activeClinicId} />
+      </div>
+    );
+  }
+
   return (
     <div className={`${isLiveFocus ? "min-h-[calc(100vh-6rem)] flex flex-col gap-2" : "space-y-4"}`}>
       {/* HEADER SECTION — compact while on a call */}
@@ -2457,6 +2728,21 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
               }`}
             >
               Simulation
+            </button>
+            <button
+              onClick={() => {
+                if (callState !== "idle" && callState !== "ended") {
+                  toast.error("Please end the active call before switching modes.");
+                  return;
+                }
+                setIsDialpadMode(true);
+                setIsPracticeMode(false);
+                setIsLiveMode(false);
+                toast.success("Founder-Led Dialpad — primary calling path.");
+              }}
+              className="text-xs px-2.5 py-1.5 rounded font-bold transition-all bg-sky-600 text-white shadow-sm border border-sky-700"
+            >
+              Founder-Led
             </button>
           </div>
         </div>

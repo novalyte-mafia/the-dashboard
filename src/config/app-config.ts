@@ -22,6 +22,8 @@ export const appConfig = {
   dataMode,
   mockMode: dataMode === "demo",
   liveClinics: dataMode !== "demo",
+  /** Workforce Command Center always reads live Supabase unless demo mode is explicit. */
+  liveWorkforce: dataMode !== "demo",
   demoOperations: dataMode !== "live",
   hybridMode: dataMode === "hybrid",
 

@@ -26,12 +26,6 @@ const STATUS_COLOR: Record<string, string> = {
   verified: "green", pending: "amber", expired: "rose", rejected: "rose",
 };
 
-// Mock credential expiry tracking (would come from extended type in production)
-const CREDENTIAL_EXPIRY: Record<string, string> = {
-  pro_2: new Date(Date.now() + 30 * 86400000).toISOString(),
-  pro_5: new Date(Date.now() - 14 * 86400000).toISOString(),
-};
-
 export function CredentialsView() {
   const { refreshKey } = useNav();
   const [data, setData] = useState<Professional[]>([]);
@@ -40,12 +34,22 @@ export function CredentialsView() {
   const [filters, setFilters] = useState<Record<string, string>>({ status: "pending" });
   const [selected, setSelected] = useState<Professional | null>(null);
   const [confirm, setConfirm] = useState<{ type: "verify" | "reject"; pro: Professional } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function loadProfessionals() {
+    setLoading(true);
+    try {
+      const result = await workforceService.listProfessionals();
+      setData(result.professionals);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to load credentials queue.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    setLoading(true);
-    workforceService.listProfessionals()
-      .then((d) => setData(d.professionals))
-      .finally(() => setLoading(false));
+    void loadProfessionals();
   }, [refreshKey]);
 
   const filtered = useMemo(() => {
@@ -53,7 +57,6 @@ export function CredentialsView() {
     return data.filter((p) => {
       if (q && !`${p.name} ${p.role} ${p.specialty}`.toLowerCase().includes(q)) return false;
       if (!filters.status) {
-        // Default: only show actionable (pending + expired)
         if (p.credentialStatus !== "pending" && p.credentialStatus !== "expired") return false;
       } else if (p.credentialStatus !== filters.status) {
         return false;
@@ -150,11 +153,11 @@ export function CredentialsView() {
               key: "expiry",
               header: "Expiry",
               hideOnMobile: true,
-              sortValue: (p) => CREDENTIAL_EXPIRY[p.id] ? new Date(CREDENTIAL_EXPIRY[p.id]).getTime() : 0,
+              sortValue: (p) => p.nextCredentialExpiry ? new Date(p.nextCredentialExpiry).getTime() : 0,
               render: (p) => (
                 <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
                   <Calendar className="size-3" />
-                  {CREDENTIAL_EXPIRY[p.id] ? formatDate(CREDENTIAL_EXPIRY[p.id]) : "—"}
+                  {p.nextCredentialExpiry ? formatDate(p.nextCredentialExpiry) : "—"}
                 </span>
               ),
             },
@@ -247,11 +250,11 @@ export function CredentialsView() {
               )}
             </div>
 
-            {CREDENTIAL_EXPIRY[selected.id] && (
+            {selected.nextCredentialExpiry && (
               <div className="p-3 rounded-md border border-amber-200 bg-amber-50">
                 <div className="text-xs text-amber-800 font-medium">Next Expiry</div>
                 <div className="text-sm font-semibold mt-0.5 text-amber-900">
-                  {formatDate(CREDENTIAL_EXPIRY[selected.id])}
+                  {formatDate(selected.nextCredentialExpiry)}
                 </div>
               </div>
             )}
@@ -287,21 +290,32 @@ export function CredentialsView() {
         title={confirm?.type === "verify" ? "Verify Credentials" : "Reject Credentials"}
         description={
           confirm?.type === "verify"
-            ? `Confirm that you have reviewed and verified the licenses and certifications for ${confirm?.pro.name}. The professional will be marked as verified.`
-            : `Reject credentials for ${confirm?.pro.name}? They will be notified and removed from active matching.`
+            ? `Confirm that you have reviewed and verified the licenses and certifications for ${confirm?.pro.name}. Pending documents will be marked verified.`
+            : `Reject credentials for ${confirm?.pro.name}? Pending documents will be marked rejected.`
         }
         confirmLabel={confirm?.type === "verify" ? "Verify" : "Reject"}
         destructive={confirm?.type === "reject"}
-        onConfirm={() => {
-          if (!confirm) return;
-          if (confirm.type === "verify") {
-            toast.success(`Credentials verified for ${confirm.pro.name}.`);
-            setData((prev) => prev.map((p) => p.id === confirm.pro.id ? { ...p, credentialStatus: "verified", verificationStatus: "verified" } : p));
-          } else {
-            toast.error(`Credentials rejected for ${confirm.pro.name}.`);
-            setData((prev) => prev.map((p) => p.id === confirm.pro.id ? { ...p, credentialStatus: "rejected", verificationStatus: "rejected" } : p));
+        onConfirm={async () => {
+          if (!confirm || submitting) return;
+          setSubmitting(true);
+          try {
+            const result = await workforceService.reviewProfessionalCredentials(
+              confirm.pro.id,
+              confirm.type === "verify" ? "verify" : "reject",
+            );
+            await loadProfessionals();
+            if (confirm.type === "verify") {
+              toast.success(`Credentials verified for ${confirm.pro.name} (${result.updatedCount} document${result.updatedCount === 1 ? "" : "s"}).`);
+            } else {
+              toast.error(`Credentials rejected for ${confirm.pro.name}.`);
+            }
+            setSelected(null);
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Unable to update credentials.");
+          } finally {
+            setSubmitting(false);
+            setConfirm(null);
           }
-          setSelected(null);
         }}
       />
     </div>

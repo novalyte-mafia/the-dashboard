@@ -10,9 +10,10 @@ import {
 } from "@/components/admin/shared/index";
 import { Button } from "@/components/ui/button";
 import {
-  FileText, CheckCircle2, Clock, Edit3, Eye, CalendarDays, Plus,
+  FileText, CheckCircle2, Clock, Eye, CalendarDays, Plus,
+  MoreHorizontal, Copy, Archive, Rocket, Undo2, ExternalLink,
 } from "lucide-react";
-import { relativeTime, formatDate } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { toast } from "sonner";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -20,7 +21,7 @@ const STATUS_COLOR: Record<string, string> = {
   draft: "slate", idea: "slate", brief: "slate", update_needed: "rose", archived: "slate",
 };
 
-const SAVED_VIEWS = ["All", "Published", "In Review", "Drafts", "Scheduled"];
+const SAVED_VIEWS = ["All", "Published", "In Review", "Drafts", "Scheduled", "Archived"];
 
 const VIEW_STATUS_MAP: Record<string, string[]> = {
   All: [],
@@ -28,6 +29,7 @@ const VIEW_STATUS_MAP: Record<string, string[]> = {
   "In Review": ["review", "approved"],
   Drafts: ["draft", "idea", "brief"],
   Scheduled: ["scheduled"],
+  Archived: ["archived"],
 };
 
 export function ArticlesView() {
@@ -37,12 +39,18 @@ export function ArticlesView() {
   const [search, setSearch] = useState("");
   const [activeView, setActiveView] = useState("All");
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reload = () => {
     setLoading(true);
     contentService.listArticles()
       .then((d) => setData(d.articles))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    reload();
   }, [refreshKey]);
 
   const filtered = useMemo(() => {
@@ -56,6 +64,51 @@ export function ArticlesView() {
       return true;
     });
   }, [data, search, activeView, filters]);
+
+  const runAction = async (
+    article: Article,
+    action: "publish" | "unpublish" | "archive" | "duplicate",
+  ) => {
+    setBusyId(article.id);
+    setOpenMenu(null);
+    try {
+      if (action === "duplicate") {
+        const { article: copy } = await contentService.articleAction(article.id, { action: "duplicate" });
+        toast.success("Article duplicated.");
+        navigate("content-studio", null, { articleId: copy.id });
+        return;
+      }
+      await contentService.articleAction(article.id, {
+        action,
+        rowVersion: article.rowVersion,
+      });
+      toast.success(
+        action === "publish"
+          ? "Published."
+          : action === "unpublish"
+            ? "Unpublished."
+            : "Archived.",
+      );
+      reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Action failed.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openPreview = async (article: Article) => {
+    setBusyId(article.id);
+    setOpenMenu(null);
+    try {
+      const { previewUrl } = await contentService.createPreviewToken(article.id);
+      window.open(previewUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Preview unavailable.");
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   if (loading) return <LoadingState label="Loading articles…" />;
 
@@ -71,7 +124,7 @@ export function ArticlesView() {
     <div>
       <PageHeader
         title="Articles"
-        description={`${data.length} articles in the editorial pipeline`}
+        description={`${data.length} articles in the editorial pipeline · ${drafts} drafts`}
         action={
           <Button onClick={() => navigate("content-studio")}>
             <Plus className="size-4" /> New Article
@@ -117,8 +170,20 @@ export function ArticlesView() {
             sortValue: (a) => a.title,
             render: (a) => (
               <div>
-                <div className="font-medium flex items-center gap-2">{a.title} <DataSourceBadge source={(a as any).dataSource} /></div>
+                <div className="font-medium flex items-center gap-2">
+                  {a.title} <DataSourceBadge source={a.dataSource} />
+                  {!a.heroImageUrl && a.status !== "idea" && (
+                    <span className="text-[10px] uppercase tracking-wide text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                      Missing media
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-muted-foreground">{a.slug}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">
+                  {a.wordCount != null ? `${a.wordCount} words` : "—"}
+                  {a.readingTime != null ? ` · ${a.readingTime} min` : ""}
+                  {a.liveUrl ? ` · ${a.liveUrl}` : ""}
+                </div>
               </div>
             ),
           },
@@ -169,8 +234,80 @@ export function ArticlesView() {
               </span>
             ),
           },
+          {
+            key: "actions",
+            header: "",
+            render: (a) => (
+              <div className="relative" onClick={(e) => e.stopPropagation()}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 w-8 p-0"
+                  disabled={busyId === a.id}
+                  onClick={() => setOpenMenu((id) => (id === a.id ? null : a.id))}
+                >
+                  <MoreHorizontal className="size-4" />
+                </Button>
+                {openMenu === a.id && (
+                  <div className="absolute right-0 z-20 mt-1 w-44 rounded-md border bg-popover p-1 shadow-md">
+                    <MenuItem
+                      icon={Rocket}
+                      label="Publish"
+                      onClick={() => void runAction(a, "publish")}
+                    />
+                    <MenuItem
+                      icon={Undo2}
+                      label="Unpublish"
+                      onClick={() => void runAction(a, "unpublish")}
+                    />
+                    <MenuItem
+                      icon={Archive}
+                      label="Archive"
+                      onClick={() => void runAction(a, "archive")}
+                    />
+                    <MenuItem
+                      icon={Copy}
+                      label="Duplicate"
+                      onClick={() => void runAction(a, "duplicate")}
+                    />
+                    <MenuItem
+                      icon={ExternalLink}
+                      label="Exact preview"
+                      onClick={() => void openPreview(a)}
+                    />
+                    <MenuItem
+                      icon={Eye}
+                      label="Open editor"
+                      onClick={() => navigate("content-studio", null, { articleId: a.id })}
+                    />
+                  </div>
+                )}
+              </div>
+            ),
+          },
         ]}
       />
     </div>
+  );
+}
+
+function MenuItem({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: React.ElementType;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-muted"
+      onClick={onClick}
+    >
+      <Icon className="size-3.5" />
+      {label}
+    </button>
   );
 }

@@ -137,7 +137,7 @@ export function OverviewView() {
           bodyClassName="p-4"
         >
           {nbc ? (
-            <NextBestCallCard clinic={nbc} onCall={() => navigate("call-console", nbc.id)} onOpen={() => navigate("clinic-detail", nbc.id)} />
+            <NextBestCallCard clinic={nbc} onCall={() => navigate("calls", nbc.id)} onOpen={() => navigate("clinic-detail", nbc.id)} />
           ) : (
             <EmptyState icon={PhoneCall} title="No clinics ready to call" description="The call queue is empty." />
           )}

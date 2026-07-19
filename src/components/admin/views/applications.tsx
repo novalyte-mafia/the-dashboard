@@ -42,6 +42,9 @@ export function ApplicationsView() {
     setLoading(true);
     workforceService.listApplications()
       .then((d) => setData(d.applications))
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "Unable to load applications.");
+      })
       .finally(() => setLoading(false));
   }, [refreshKey]);
 

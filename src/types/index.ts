@@ -157,9 +157,11 @@ export interface Clinic {
 // Calls
 // ---------------------------------------------------------------------------
 export type CallOutcome =
-  | "no_answer" | "voicemail" | "gatekeeper" | "wrong_number"
-  | "disconnected_number" | "decision_maker_unavailable" | "call_back_requested"
-  | "information_requested" | "connected" | "interested" | "meeting_booked"
+  | "no_answer" | "voicemail" | "busy" | "clinic_closed" | "gatekeeper" | "wrong_number"
+  | "disconnected_number" | "decision_maker_unavailable" | "technical_failure"
+  | "call_back_requested" | "information_requested" | "connected"
+  | "permission_granted" | "permission_denied"
+  | "interested" | "meeting_booked"
   | "not_interested" | "already_has_provider" | "at_capacity" | "do_not_call" | "other";
 
 export type CallState = "idle" | "configuring" | "dialing" | "ringing" | "connected" | "on_hold" | "ended" | "failed" | "provider_unavailable";
@@ -276,7 +278,13 @@ export interface DirectoryProfile {
   bookingLinkCompleted: boolean;
   lastReviewedAt?: ISODate;
   reviewedByName?: string;
-  publicationStatus: "draft" | "ready" | "published" | "unpublished";
+  publicationStatus: "draft" | "ready" | "approved" | "published" | "unpublished" | "suspended";
+  publicClinicId?: ID;
+  permissionSourceCallId?: ID;
+  permissionGrantedAt?: ISODate;
+  approvedAt?: ISODate;
+  publishedAt?: ISODate;
+  suspendedAt?: ISODate;
 }
 
 // ---------------------------------------------------------------------------
@@ -383,6 +391,8 @@ export interface Campaign {
 // ---------------------------------------------------------------------------
 // Workforce
 // ---------------------------------------------------------------------------
+export type ProfessionalReviewStatus = "pending_review" | "approved" | "rejected" | "suspended";
+
 export interface Professional {
   id: ID;
   name: string;
@@ -398,8 +408,46 @@ export interface Professional {
   resumeUrl?: string;
   credentialStatus: "pending" | "verified" | "expired" | "rejected";
   verificationStatus: "pending" | "verified" | "rejected";
+  reviewStatus?: ProfessionalReviewStatus;
+  status?: string;
+  nextCredentialExpiry?: ISODate;
   matchScore?: number;
   createdAt: ISODate;
+  dataSource?: "live" | "demo";
+}
+
+export interface ProfessionalDocument {
+  id: ID;
+  profileId: ID;
+  profileName: string;
+  profileRole: string;
+  profileSpecialty: string;
+  name: string;
+  type: string;
+  verificationStatus: "pending" | "verified" | "rejected";
+  createdAt: ISODate;
+  verifiedAt?: ISODate;
+  dataSource?: "live" | "demo";
+}
+
+export type ClinicClaimStatus = "submitted" | "under_review" | "approved" | "rejected" | "revoked";
+
+export interface ClinicClaim {
+  id: ID;
+  clinicId: ID;
+  clinicName: string;
+  clinicCity?: string;
+  clinicState?: string;
+  organizationId: ID;
+  organizationName: string;
+  claimantUserId: ID;
+  status: ClinicClaimStatus;
+  reviewerNotes?: string;
+  reviewedBy?: string;
+  reviewedAt?: ISODate;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+  dataSource?: "live" | "demo";
 }
 
 export interface JobListing {
@@ -416,6 +464,7 @@ export interface JobListing {
   status: "open" | "closed" | "filled" | "draft";
   applicationsCount: number;
   createdAt: ISODate;
+  dataSource?: "live" | "demo";
 }
 
 export interface JobApplication {
@@ -428,6 +477,7 @@ export interface JobApplication {
   status: "submitted" | "reviewing" | "interview" | "offered" | "hired" | "rejected";
   appliedAt: ISODate;
   matchScore?: number;
+  dataSource?: "live" | "demo";
 }
 
 // ---------------------------------------------------------------------------
@@ -491,6 +541,16 @@ export interface Article {
   publishDate?: ISODate;
   views?: number;
   createdAt: ISODate;
+  /** Optimistic concurrency token from JournalArticleV1. */
+  rowVersion?: number;
+  contentMarkdown?: string | null;
+  metaTitle?: string;
+  metaDescription?: string;
+  heroImageUrl?: string;
+  readingTime?: number;
+  updatedAt?: ISODate;
+  liveUrl?: string;
+  dataSource?: "live" | "demo";
 }
 
 // ---------------------------------------------------------------------------

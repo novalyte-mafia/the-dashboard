@@ -147,7 +147,11 @@ export function CallQueueView() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {filtered.map((q) => {
             const within = isWithinCallingHours(q.timezone);
-            const dm = q.contacts.find((c) => c.isDecisionMaker);
+            // Live API returns a precomputed decisionMaker; mock data carries a contacts array.
+            const dm =
+              (q as { decisionMaker?: { firstName?: string; lastName?: string } | null }).decisionMaker ??
+              (q.contacts ?? []).find((c) => c.isDecisionMaker) ??
+              null;
             return (
               <Card key={q.id} className={`p-4 gap-0 ${!within ? "opacity-60" : ""}`}>
                 <div className="flex items-start justify-between gap-3 mb-2">
@@ -205,14 +209,14 @@ export function CallQueueView() {
                   </div>
                 )}
 
-                {q.services.length > 0 && (
+                {(q.services ?? []).length > 0 && (
                   <div className="flex flex-wrap gap-1 mb-3">
-                    {q.services.slice(0, 4).map((s) => <Badge key={s} variant="outline" className="text-[10px]">{s}</Badge>)}
+                    {(q.services ?? []).slice(0, 4).map((s) => <Badge key={s} variant="outline" className="text-[10px]">{s}</Badge>)}
                   </div>
                 )}
 
                 <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t">
-                  <Button size="sm" onClick={() => navigate("call-console", q.id)} disabled={!within || !q.primaryPhone}>
+                  <Button size="sm" onClick={() => navigate("calls", q.id)} disabled={!within || !q.primaryPhone}>
                     <PhoneOutgoing className="size-3.5" /> Call
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => openClinic(q.id)}>

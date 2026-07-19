@@ -162,7 +162,7 @@ export function DecisionMakersView() {
           className="h-7 text-xs"
           onClick={(e) => {
             e.stopPropagation();
-            navigate("call-console", c.clinicId);
+            navigate("calls", c.clinicId);
           }}
         >
           <Phone className="size-3.5" /> Log call

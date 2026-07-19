@@ -12,8 +12,8 @@ import { appConfig } from "@/config/app-config";
 import * as mocks from "@/mocks";
 import type {
   AdminMember, Clinic, CallSession, FollowUpTask, Deal, DirectoryProfile,
-  PatientLead, ClinicMatch, MarketData, Campaign, Professional, JobListing,
-  JobApplication, Product, Order, Article, Automation, AIUsageRecord,
+  PatientLead, ClinicMatch, MarketData, Campaign, Professional, ProfessionalDocument,
+  JobListing, JobApplication, ClinicClaim, Product, Order, Article, Automation, AIUsageRecord,
   Integration, AuditEvent, NotificationItem, ActivityEvent, KPIMetric,
 } from "@/types";
 
@@ -24,6 +24,13 @@ function mockAsync<T>(data: T, ms = 120): Promise<T> {
 
 function markDemo<T>(records: T[]): (T & { dataSource: "demo" })[] {
   return records.map((record) => ({ ...(record as object), dataSource: "demo" as const }) as T & { dataSource: "demo" });
+}
+
+async function workforceJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const r = await fetch(input, init);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error ?? "Workforce request failed.");
+  return data as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +113,10 @@ export const callService = {
     return fetch(`/api/clinics/${clinicId}/calls`).then((r) => r.json());
   },
   listAll(): Promise<{ calls: CallSession[] }> {
-    return mockAsync({ calls: mocks.mockCalls });
+    if (!appConfig.liveClinics) {
+      return mockAsync({ calls: mocks.mockCalls });
+    }
+    return fetch("/api/calls?limit=100").then((r) => r.json());
   },
 };
 
@@ -226,16 +236,55 @@ export const campaignService = {
 // ---------------------------------------------------------------------------
 export const workforceService = {
   listProfessionals(): Promise<{ professionals: Professional[] }> {
-    if (appConfig.dataMode === "demo") return mockAsync({ professionals: markDemo(mocks.mockProfessionals) as Professional[] });
-    return fetch("/api/workforce?resource=professionals").then((r) => { if (!r.ok) throw new Error("Unable to load professionals"); return r.json(); }).then((live) => appConfig.hybridMode ? { professionals: [...live.professionals, ...markDemo(mocks.mockProfessionals)] } : live);
+    if (!appConfig.liveWorkforce) return mockAsync({ professionals: markDemo(mocks.mockProfessionals) as Professional[] });
+    return workforceJson<{ professionals: Professional[] }>("/api/workforce?resource=professionals");
+  },
+  listDocuments(): Promise<{ documents: ProfessionalDocument[] }> {
+    if (!appConfig.liveWorkforce) return mockAsync({ documents: [] });
+    return workforceJson<{ documents: ProfessionalDocument[] }>("/api/workforce?resource=documents");
   },
   listJobs(): Promise<{ jobs: JobListing[] }> {
-    if (appConfig.dataMode === "demo") return mockAsync({ jobs: markDemo(mocks.mockJobs) as JobListing[] });
-    return fetch("/api/workforce?resource=jobs").then((r) => { if (!r.ok) throw new Error("Unable to load jobs"); return r.json(); }).then((live) => appConfig.hybridMode ? { jobs: [...live.jobs, ...markDemo(mocks.mockJobs)] } : live);
+    if (!appConfig.liveWorkforce) return mockAsync({ jobs: markDemo(mocks.mockJobs) as JobListing[] });
+    return workforceJson<{ jobs: JobListing[] }>("/api/workforce?resource=jobs");
   },
   listApplications(): Promise<{ applications: JobApplication[] }> {
-    if (appConfig.dataMode === "demo") return mockAsync({ applications: markDemo(mocks.mockApplications) as JobApplication[] });
-    return fetch("/api/workforce?resource=applications").then((r) => { if (!r.ok) throw new Error("Unable to load applications"); return r.json(); }).then((live) => appConfig.hybridMode ? { applications: [...live.applications, ...markDemo(mocks.mockApplications)] } : live);
+    if (!appConfig.liveWorkforce) return mockAsync({ applications: markDemo(mocks.mockApplications) as JobApplication[] });
+    return workforceJson<{ applications: JobApplication[] }>("/api/workforce?resource=applications");
+  },
+  listClinicClaims(): Promise<{ claims: ClinicClaim[] }> {
+    if (!appConfig.liveWorkforce) return mockAsync({ claims: [] });
+    return workforceJson<{ claims: ClinicClaim[] }>("/api/workforce?resource=clinic-claims");
+  },
+  setProfessionalReviewStatus(profileId: string, reviewStatus: string, reason?: string) {
+    return workforceJson<{ profile: unknown }>(`/api/workforce/professionals/${encodeURIComponent(profileId)}/review`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reviewStatus, reason }),
+    });
+  },
+  setDocumentVerification(documentId: string, status: "pending" | "verified" | "rejected", reason?: string) {
+    return workforceJson<{ document: unknown }>(`/api/workforce/documents/${encodeURIComponent(documentId)}/verification`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, reason }),
+    });
+  },
+  reviewProfessionalCredentials(profileId: string, action: "verify" | "reject", reason?: string) {
+    return workforceJson<{ documents: unknown[]; updatedCount: number }>(
+      `/api/workforce/professionals/${encodeURIComponent(profileId)}/credentials`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason }),
+      },
+    );
+  },
+  reviewClinicClaim(claimId: string, action: "approve" | "reject" | "revoke", notes?: string) {
+    return workforceJson<{ claim: ClinicClaim }>(`/api/workforce/clinic-claims/${encodeURIComponent(claimId)}/review`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, notes }),
+    });
   },
 };
 
@@ -255,6 +304,23 @@ export const marketplaceService = {
 // ---------------------------------------------------------------------------
 // Content Service
 // ---------------------------------------------------------------------------
+async function contentJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const r = await fetch(input, init);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const err = new Error(data.error ?? "Content request failed.") as Error & {
+      status?: number;
+      conflict?: boolean;
+      article?: unknown;
+    };
+    err.status = r.status;
+    err.conflict = Boolean(data.conflict);
+    err.article = data.article;
+    throw err;
+  }
+  return data as T;
+}
+
 export const contentService = {
   listArticles(status?: string): Promise<{ articles: Article[] }> {
     if (appConfig.dataMode === "demo") {
@@ -263,7 +329,206 @@ export const contentService = {
       return mockAsync({ articles });
     }
     const qs = status ? `?status=${encodeURIComponent(status)}` : "";
-    return fetch(`/api/content/articles${qs}`).then((r) => { if (!r.ok) throw new Error("Unable to load articles"); return r.json(); }).then((live) => appConfig.hybridMode ? { articles: [...live.articles, ...mocks.mockArticles] } : live);
+    return contentJson<{ articles: Article[] }>(`/api/content/articles${qs}`).then((live) =>
+      appConfig.hybridMode
+        ? { articles: [...live.articles, ...mocks.mockArticles] }
+        : live,
+    );
+  },
+
+  getArticle(id: string) {
+    return contentJson<{
+      article: import("@/lib/journal-article-v1").JournalArticleV1;
+      seo: { score: number; checks: { id: string; label: string; ok: boolean }[] };
+    }>(`/api/content/articles/${id}`);
+  },
+
+  createArticle(input: Record<string, unknown>) {
+    return contentJson<{ article: import("@/lib/journal-article-v1").JournalArticleV1 }>(
+      "/api/content/articles",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  },
+
+  updateArticle(id: string, input: Record<string, unknown>) {
+    return contentJson<{
+      article: import("@/lib/journal-article-v1").JournalArticleV1;
+      seo: { score: number; checks: { id: string; label: string; ok: boolean }[] };
+    }>(`/api/content/articles/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  },
+
+  /** Optimistic autosave; uses dedicated route that stamps changeSummary=Autosave. */
+  autosaveArticle(id: string, input: Record<string, unknown>) {
+    return contentJson<{
+      article: import("@/lib/journal-article-v1").JournalArticleV1;
+      seo: { score: number; checks: { id: string; label: string; ok: boolean }[] };
+    }>(`/api/content/articles/${id}/autosave`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  },
+
+  articleAction(
+    id: string,
+    body:
+      | { action: "publish" | "unpublish" | "archive" | "review" | "approve"; rowVersion?: number }
+      | { action: "schedule"; scheduledFor: string; rowVersion?: number }
+      | { action: "duplicate" },
+  ) {
+    return contentJson<{ article: import("@/lib/journal-article-v1").JournalArticleV1 }>(
+      `/api/content/articles/${id}/actions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  listRevisions(id: string) {
+    return contentJson<{
+      revisions: Array<{
+        id: string;
+        revision_number: number;
+        row_version: number;
+        change_summary: string | null;
+        created_at: string;
+      }>;
+    }>(`/api/content/articles/${id}/revisions`);
+  },
+
+  restoreRevision(id: string, revisionId: string) {
+    return contentJson<{ article: import("@/lib/journal-article-v1").JournalArticleV1 }>(
+      `/api/content/articles/${id}/revisions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revisionId }),
+      },
+    );
+  },
+
+  createPreviewToken(id: string, ttlSeconds?: number) {
+    return contentJson<{ previewUrl: string; expiresInSeconds: number }>(
+      `/api/content/articles/${id}/preview-token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ttlSeconds }),
+      },
+    );
+  },
+
+  listMedia(articleId?: string) {
+    const qs = articleId ? `?articleId=${encodeURIComponent(articleId)}` : "";
+    return contentJson<{ media: Array<Record<string, unknown>> }>(`/api/content/media${qs}`);
+  },
+
+  async uploadMedia(form: FormData) {
+    return contentJson<{ media: Record<string, unknown> }>("/api/content/media", {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  attachMedia(input: {
+    articleId: string;
+    mediaId: string;
+    role?: "hero" | "inline" | "social" | "attachment";
+  }) {
+    return contentJson<{ ok: boolean }>("/api/content/media/attach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  },
+
+  researchKeywords(input: {
+    seedKeyword: string;
+    additionalKeywords?: string[];
+    topic?: string;
+    locationName?: string;
+    languageCode?: string;
+    limit?: number;
+  }) {
+    return contentJson<{
+      provider: "dataforseo" | "ai";
+      providerLabel: string;
+      metricsAvailable: boolean;
+      keywords: {
+        primary: string | null;
+        secondary: string[];
+      };
+      suggestions?: Array<Record<string, unknown>>;
+      notice?: string | null;
+    }>("/api/content/keywords", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Content Generation Service (GLM long-form)
+// ---------------------------------------------------------------------------
+export interface GenerationProvenanceSummary {
+  model: string;
+  attempts: number;
+  durationMs: number;
+  /** True when the event was persisted onto the draft's provenance log. */
+  persisted: boolean;
+}
+
+async function postGeneration<T>(path: string, payload: unknown): Promise<T> {
+  const r = await fetch(`/api/content/generate/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error ?? "Generation request failed.");
+  return data as T;
+}
+
+/**
+ * GLM long-form generation. Always live (no mock mode) and always
+ * non-destructive: results are returned for the editor to explicitly apply;
+ * nothing here writes draft content.
+ */
+export const contentGenerationService = {
+  generateOutline(input: import("@/lib/content/generation-types").OutlineRequest) {
+    return postGeneration<{
+      outline: import("@/lib/content/generation-types").GeneratedOutline;
+      provenance: GenerationProvenanceSummary;
+    }>("outline", input);
+  },
+  generateArticle(input: import("@/lib/content/generation-types").ArticleRequest) {
+    return postGeneration<{
+      article: import("@/lib/content/generation-types").GeneratedArticle;
+      provenance: GenerationProvenanceSummary;
+    }>("article", input);
+  },
+  generateSection(input: import("@/lib/content/generation-types").SectionRequest) {
+    return postGeneration<{
+      section: import("@/lib/content/generation-types").GeneratedSectionResult;
+      provenance: GenerationProvenanceSummary;
+    }>("section", input);
+  },
+  suggestSeo(input: import("@/lib/content/generation-types").SeoRequest) {
+    return postGeneration<{
+      seo: import("@/lib/content/generation-types").SeoSuggestions;
+      provenance: GenerationProvenanceSummary;
+    }>("seo", input);
   },
 };
 

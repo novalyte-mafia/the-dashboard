@@ -26,12 +26,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const attemptNumber = (clinic.callAttempts ?? 0) + 1;
   const outcome = String(body.outcome ?? "no_answer");
-  const answered = Boolean(body.answered ?? false);
+  const answered = Boolean(
+    body.answered ??
+      ["connected", "permission_granted", "permission_denied", "interested", "meeting_booked", "not_interested", "call_back_requested", "information_requested", "already_has_provider", "at_capacity", "do_not_call"].includes(outcome),
+  );
   const decisionMakerReached = Boolean(body.decisionMakerReached ?? false);
-  const interestLevel = String(body.interestLevel ?? "unknown");
+  const interestLevel = String(
+    body.interestLevel ??
+      (outcome === "permission_granted" || outcome === "interested" || outcome === "meeting_booked"
+        ? "warm"
+        : "unknown"),
+  );
   const followUpRequired = Boolean(body.followUpRequired ?? false);
   const doNotCall = Boolean(body.doNotCall ?? false) || outcome === "do_not_call";
   const invalidNumber = Boolean(body.invalidNumber ?? false) || outcome === "wrong_number" || outcome === "disconnected_number";
+  const permissionGranted = outcome === "permission_granted" || body.directoryPermissionStatus === "granted";
+  const permissionDenied = outcome === "permission_denied" || body.directoryPermissionStatus === "denied";
 
   const existingCall = body.callSessionId
     ? await db.callSession.findUnique({ where: { id: String(body.callSessionId) } })
@@ -112,14 +122,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       updatedById: admin.id,
     };
     if (doNotCall) { updateData.doNotCall = true; updateData.pipelineStage = "do_not_call"; }
-    if (outcome === "interested" || outcome === "meeting_booked") updateData.interested = true;
+    if (outcome === "interested" || outcome === "meeting_booked" || permissionGranted) updateData.interested = true;
     if (outcome === "meeting_booked") updateData.pipelineStage = "meeting_booked";
-    if (decisionMakerReached && (clinic.pipelineStage === "connected" || clinic.pipelineStage === "attempted")) {
+    else if (permissionGranted) updateData.pipelineStage = "directory_approved";
+    else if (permissionDenied || outcome === "not_interested") updateData.pipelineStage = "not_interested";
+    else if (outcome === "busy" || outcome === "clinic_closed" || outcome === "technical_failure") {
+      updateData.pipelineStage = followUpRequired ? "follow_up_required" : "attempted";
+    } else if (decisionMakerReached && (clinic.pipelineStage === "connected" || clinic.pipelineStage === "attempted")) {
       updateData.pipelineStage = "decision_maker_reached";
-    } else if (answered && clinic.pipelineStage === "ready_to_call") {
+    } else if (answered && ["ready_to_call", "attempted", "imported", "research_complete"].includes(clinic.pipelineStage)) {
       updateData.pipelineStage = "connected";
     } else if (!answered && clinic.pipelineStage === "ready_to_call") {
       updateData.pipelineStage = "attempted";
+    }
+    if (followUpRequired && !doNotCall && updateData.pipelineStage !== "meeting_booked" && updateData.pipelineStage !== "directory_approved") {
+      updateData.pipelineStage = "follow_up_required";
     }
 
     await db.clinic.update({ where: { id }, data: updateData });
@@ -137,21 +154,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       });
     }
 
-    // Create follow-up if required
+    // Create follow-up if required — attach relatedCallId when the column exists.
     if (followUpRequired && body.nextAction) {
-      await db.followUpTask.create({
-        data: {
-          title: body.nextAction as string,
-          clinicId: id,
-          contactId: (body.contactId as string) ?? null,
-          taskType: (body.followUpType as string) ?? "phone_call",
-          priority: decisionMakerReached ? "high" : "normal",
-          dueDate: body.nextActionAt ? new Date(body.nextActionAt as string) : new Date(Date.now() + 86400000),
-          status: "open",
-          description: `${(body.notes as string) ?? ""}\nCreated from call ${call.id}`.trim(),
-          assignedAdminId: admin.id,
-        },
-      });
+      const followUpBase = {
+        title: body.nextAction as string,
+        clinicId: id,
+        contactId: (body.contactId as string) ?? null,
+        taskType: (body.followUpType as string) ?? "phone_call",
+        priority: decisionMakerReached || permissionGranted ? "high" : "normal",
+        dueDate: body.nextActionAt ? new Date(body.nextActionAt as string) : new Date(Date.now() + 86400000),
+        status: "open",
+        description: `${(body.notes as string) ?? ""}\nCreated from call ${call.id}`.trim() || null,
+        assignedAdminId: admin.id,
+      };
+      try {
+        await db.followUpTask.create({
+          data: { ...followUpBase, relatedCallId: call.id },
+        });
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : typeof err === "object" && err && "message" in err
+              ? String((err as { message: unknown }).message)
+              : String(err);
+        if (!/relatedCallId/i.test(message)) throw err;
+        await db.followUpTask.create({ data: followUpBase });
+      }
     }
 
     await recalcReadiness(id);

@@ -1,12 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionAdmin } from "@/lib/auth";
+import { requireAdminRole } from "@/lib/auth";
 
 function safeString(value: unknown): string | null {
   return typeof value === "string" && value.length <= 500 ? value : null;
 }
 
+/** Strip query/hash so preview tokens and PII in URLs never reach the admin UI. */
+function sanitizePageUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    if (value.startsWith("http://") || value.startsWith("https://")) {
+      const parsed = new URL(value);
+      return `${parsed.origin}${parsed.pathname}`.slice(0, 500);
+    }
+    return value.split("?")[0]?.split("#")[0]?.slice(0, 500) || null;
+  } catch {
+    return value.split("?")[0]?.split("#")[0]?.slice(0, 500) || null;
+  }
+}
+
+function isProductionEvent(properties: Record<string, unknown>): boolean {
+  const url = typeof properties.$current_url === "string" ? properties.$current_url : "";
+  if (url.startsWith("https://novalyte.io")) return true;
+  const host = typeof properties.$host === "string" ? properties.$host : "";
+  if (host === "novalyte.io") return true;
+  return (
+    properties.environment === "production" && properties.capture_source === "server"
+  );
+}
+
+function isDevelopmentEvent(properties: Record<string, unknown>): boolean {
+  const url = typeof properties.$current_url === "string" ? properties.$current_url : "";
+  if (/^(https?:\/\/localhost|https?:\/\/127\.0\.0\.1)/.test(url)) return true;
+  return (
+    properties.environment === "development" && properties.capture_source === "server"
+  );
+}
+
 export async function GET(request: NextRequest) {
-  if (!(await getSessionAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await requireAdminRole(["admin"]))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const apiKey = process.env.POSTHOG_PERSONAL_API_KEY?.trim();
   const projectId = process.env.POSTHOG_PROJECT_ID?.trim();
@@ -27,8 +61,9 @@ export async function GET(request: NextRequest) {
     const events = (payload.results ?? []).filter((event) => {
       if (environment === "all") return true;
       const properties = (event.properties && typeof event.properties === "object") ? event.properties as Record<string, unknown> : {};
-      const url = typeof properties.$current_url === "string" ? properties.$current_url : "";
-      return environment === "development" ? /^(https?:\/\/localhost|https?:\/\/127\.0\.0\.1)/.test(url) : url.startsWith("https://novalyte.io");
+      return environment === "development"
+        ? isDevelopmentEvent(properties)
+        : isProductionEvent(properties);
     }).map((event) => {
       const properties = (event.properties && typeof event.properties === "object") ? event.properties as Record<string, unknown> : {};
       return {
@@ -36,8 +71,8 @@ export async function GET(request: NextRequest) {
         event: safeString(event.event) ?? "unknown_event",
         timestamp: safeString(event.timestamp) ?? new Date().toISOString(),
         distinctId: properties.$user_id || properties.$identified ? "Identified user" : "Anonymous visitor",
-        page: safeString(properties.$current_url) ?? safeString(properties.$pathname),
-        referrer: safeString(properties.$referrer),
+        page: sanitizePageUrl(properties.$current_url) ?? safeString(properties.$pathname),
+        referrer: sanitizePageUrl(properties.$referrer),
         device: safeString(properties.$device_type),
         browser: safeString(properties.$browser),
         os: safeString(properties.$os),
