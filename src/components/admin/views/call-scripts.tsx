@@ -34,33 +34,66 @@ type CallScript = {
 /**
  * Directory-permission call scripts only.
  * Do not mention paid acquisition, advertising, lead packages, or commercial offers.
+ * Aligned with Founder-Led Call Mode (founder-led-script.ts) for tomorrow's outreach.
  */
 const SCRIPTS: CallScript[] = [
   {
     id: "directory-opening",
-    name: "Opening — Directory Permission",
-    description: "First-contact opener: explain Novalyte AI and ask permission to list the clinic.",
+    name: "Opening — When clinic answers",
+    description: "Greeting → free directory purpose → ask for the right person.",
     category: "Intro",
     icon: PhoneCall,
     tone: "teal",
-    whenToUse: "First outbound call — reach the person who manages the clinic listing",
+    whenToUse: "Clinic picks up — first 20 seconds",
     duration: "45s",
     sections: [
       {
-        heading: "Opening",
-        body: `Hi, this is Jamil Yakasai with Novalyte AI. I'm calling about your clinic's free verified directory listing — not a paid service or sales pitch.
-
-Do you have a minute for me to explain what that means, and you can tell me if it's okay to continue?`,
+        heading: "Greeting",
+        body: `Hi, good morning. My name is Jamil, and I'm calling from Novalyte AI. How are you doing today?`,
       },
       {
-        heading: "Purpose",
-        body: `Novalyte AI maintains a verified directory so men searching for TRT and men's health care can find appropriate clinics. We'd like to include [CLINIC NAME] only with your permission.
+        heading: "Purpose + right person",
+        body: `I'm reaching out because we're building a patient-facing directory for men's health clinics, and we'd like to include your clinic at no cost. I just need to speak with whoever handles your clinic information, partnerships, or marketing. Who would be the best person for that?`,
+      },
+    ],
+  },
+  {
+    id: "gatekeeper-regarding",
+    name: "Gatekeeper — What is this regarding?",
+    description: "Short answer, then stop talking.",
+    category: "Intro",
+    icon: PhoneCall,
+    tone: "teal",
+    whenToUse: "Receptionist asks what the call is about",
+    duration: "20s",
+    sections: [
+      {
+        heading: "Script",
+        body: `It's regarding a free clinic listing. We're creating a directory that helps patients discover men's health providers, and I'm calling to confirm whether we have permission to include the clinic and verify the information.
 
-The listing is free. I just need to confirm a few public details — phone, services, booking method — and whether we have permission to publish them.`,
+Then stop talking.`,
+      },
+    ],
+  },
+  {
+    id: "decision-maker-permission",
+    name: "Decision-maker — Permission ask",
+    description: "Founder intro + free listing ask. Pause for their answer.",
+    category: "Intro",
+    icon: PhoneCall,
+    tone: "teal",
+    whenToUse: "Transferred to owner / manager / marketing",
+    duration: "60s",
+    sections: [
+      {
+        heading: "Intro",
+        body: `Hi, my name is Jamil. I'm the founder of Novalyte AI. We're building a healthcare discovery platform, beginning with men's health, to help patients find reputable clinics based on their location and the services they need.`,
       },
       {
         heading: "Permission ask",
-        body: `Would it be okay for us to include your clinic in the Novalyte AI verified directory after we confirm those details with you?`,
+        body: `I'm reaching out because we'd like to create a free directory profile for your clinic. There is no charge and no commitment. I just wanted to ask whether you would be comfortable with us including the clinic.
+
+Then stop and let them answer.`,
       },
     ],
   },
@@ -75,26 +108,25 @@ The listing is free. I just need to confirm a few public details — phone, serv
     duration: "3 min",
     sections: [
       {
-        heading: "Thank + confirm scope",
-        body: `Thank you — I'll summarize what will appear publicly: clinic name, location, core services, hours, and how patients book.
-
-You can review everything before anything goes live, and you can ask us to update or remove the listing anytime.`,
+        heading: "Thank + scope",
+        body: `Excellent. Thank you. I'll keep this simple. I just need to verify a few details so we represent the clinic accurately.`,
       },
       {
         heading: "Information to collect now",
-        body: `I'll confirm:
-- Public clinic phone and address
-- Core services (TRT, GLP-1, telehealth, etc.)
-- Booking URL or phone booking method
-- Whether you're accepting new patients
-- Best email for the verification follow-up
-- Name and role of the listing contact
-
-Provider photos and credentials can come later via a short intake form.`,
+        body: `Ask:
+- What is the correct clinic name?
+- What locations do you currently serve?
+- Do you offer telehealth, in-person care, or both?
+- What are the main services you would want patients to know about?
+- Would you like us to send patients to your website, phone number, or a specific booking link?
+- Who should review the profile before it is published?
+- What is the best email address for that person?`,
       },
       {
         heading: "Close",
-        body: `I'll send a verification summary to [EMAIL] today. Once you approve, we'll publish the listing. Is there anything you'd like changed before it goes live?`,
+        body: `Perfect. I'll prepare the profile and send it for review before anything is finalized. Once you approve it, we can publish it in the directory.
+
+Is there a specific day I should follow up if I haven't heard back?`,
       },
     ],
   },
@@ -110,9 +142,9 @@ Provider photos and credentials can come later via a short intake form.`,
     sections: [
       {
         heading: "Script",
-        body: `Yes — the verified directory listing is completely free. There is no charge to apply, verify your public details, or publish an approved profile.
+        body: `There is no cost for the directory profile. We will not put you on a paid agreement or charge the clinic for being included.
 
-This call is only about permission to list those public details. There is no paid contract or obligation on today's call.`,
+This call is only about permission and verifying public details.`,
       },
     ],
   },
@@ -128,27 +160,45 @@ This call is only about permission to list those public details. There is no pai
     sections: [
       {
         heading: "Script",
-        body: `Fair question. This specific call is not a sales call — I'm only asking permission to include your clinic in our free verified directory and to confirm a few public listing details.
+        body: `No. There is no payment required for the directory listing. I'm only calling to request permission and confirm the clinic's information.`,
+      },
+    ],
+  },
+  {
+    id: "objection-traffic",
+    name: "Objection — Do you have patient traffic?",
+    description: "Honest launch answer — do not exaggerate.",
+    category: "Objections",
+    icon: ShieldQuestion,
+    tone: "amber",
+    whenToUse: "Clinic asks about volume, leads, or current traffic",
+    duration: "45s",
+    sections: [
+      {
+        heading: "Script",
+        body: `I'll be straight with you: we're launching the directory and onboarding the first clinic partners now. The platform is live at novalyte.io, and we're building the clinic network and patient education content together.
 
-There's no paid service or contract involved in what I'm asking today.`,
+I don't want to exaggerate current traffic — early partners help shape the directory while we grow distribution.`,
       },
     ],
   },
   {
     id: "objection-not-interested",
-    name: "Objection — Not interested",
+    name: "Objection — Not interested / don't list us",
     description: "Respectful decline handling.",
     category: "Objections",
     icon: ShieldQuestion,
     tone: "rose",
-    whenToUse: "Clinic declines or asks not to be called again",
+    whenToUse: "Clinic declines listing or asks not to be called again",
     duration: "30s",
     sections: [
       {
         heading: "Script",
-        body: `I understand — thank you for letting me know. There is no cost and no obligation for the directory listing.
+        body: `Understood. Thank you for letting me know. I'll mark the clinic as not approved for publication.
 
-Would you prefer I don't call again, or would a one-page email be helpful if you want to review it later? Either way, I appreciate your time.`,
+May I ask whether there is a specific concern, so we can make sure we handle clinics appropriately?
+
+Do not argue. Offer email-only or do-not-contact if they prefer.`,
       },
     ],
   },
@@ -164,9 +214,9 @@ Would you prefer I don't call again, or would a one-page email be helpful if you
     sections: [
       {
         heading: "Script",
-        body: `Absolutely. Before I send it — what's the best email, and who manages the clinic's public listing or directory decisions?
+        body: `Of course. What's the best email address, and whose attention should I put it to?
 
-I'll send a one-page overview of the free verified listing and the verification steps. Would a brief follow-up call after you review be helpful, or email only?`,
+I'll send a short overview explaining the free listing, what information would appear, and how the clinic can review or correct it before publication.`,
       },
     ],
   },
@@ -182,9 +232,27 @@ I'll send a one-page overview of the free verified listing and the verification 
     sections: [
       {
         heading: "Script",
-        body: `Thank you. Who usually handles the clinic's public listing or website directory decisions?
+        body: `No problem. May I have their name, email address, and the best time to call back?
 
-What's the best time to reach them, and may I send a brief verification email in the meantime? I won't publish anything without explicit permission.`,
+Is there anything specific I should include so they understand why I'm reaching out? I won't publish anything without explicit permission.`,
+      },
+    ],
+  },
+  {
+    id: "objection-enough-patients",
+    name: "Objection — We have enough patients",
+    description: "Capacity-friendly listing pitch.",
+    category: "Objections",
+    icon: ShieldQuestion,
+    tone: "amber",
+    whenToUse: "Clinic says they don't need more patients",
+    duration: "30s",
+    sections: [
+      {
+        heading: "Script",
+        body: `That makes sense. The listing does not require the clinic to accept additional patients or participate in any paid program. We can also make capacity or appointment availability clear on the profile.
+
+Would you still be comfortable with a basic informational listing?`,
       },
     ],
   },
@@ -200,7 +268,7 @@ What's the best time to reach them, and may I send a brief verification email in
     sections: [
       {
         heading: "Script",
-        body: `Yes — you can review listing details before publication when you request it. Listings are permission-based only.
+        body: `Nothing goes live without clinic review when you request it. Listings are permission-based only.
 
 If anything changes, you can ask us to update or remove your profile. We don't publish without your explicit permission.`,
       },
@@ -214,13 +282,11 @@ If anything changes, you can ask us to update or remove your profile. We don't p
     icon: Voicemail,
     tone: "teal",
     whenToUse: "First voicemail after no-answer",
-    duration: "20s",
+    duration: "25s",
     sections: [
       {
         heading: "Script",
-        body: `Hi [FIRST NAME], this is Jamil Yakasai with Novalyte AI. I'm calling about your clinic's free verified directory listing — just permission to include your public clinic details.
-
-I'll try again in a couple of days, or you can reach me at [PHONE]. Thanks.`,
+        body: `Hi, this is Jamil, founder of Novalyte AI. We're building a patient-facing directory for men's health clinics, and I'm calling to request permission to include your clinic at no cost. I'd also like to verify the clinic's information before anything is published. You can reach me at [PHONE], or I'll send a brief email as well. Again, this is Jamil from Novalyte AI. Thank you.`,
       },
     ],
   },
@@ -236,7 +302,7 @@ I'll try again in a couple of days, or you can reach me at [PHONE]. Thanks.`,
     sections: [
       {
         heading: "Script",
-        body: `Hi [FIRST NAME], Jamil Yakasai from Novalyte AI — this is my last message about your free directory listing.
+        body: `Hi, Jamil Yakasai from Novalyte AI — this is my last message about your free directory listing.
 
 I'll close your file for now. If you'd like to be included later, my line is [PHONE]. Wishing you and the clinic the best.`,
       },
@@ -254,7 +320,7 @@ I'll close your file for now. If you'd like to be included later, my line is [PH
     sections: [
       {
         heading: "Script",
-        body: `Hi [FIRST NAME], Jamil with Novalyte AI. I sent the directory verification summary for [CLINIC NAME] — wanted to see if you had a chance to review it.
+        body: `Hi [FIRST NAME], Jamil with Novalyte AI. I sent the directory profile draft for [CLINIC NAME] — wanted to see if you had a chance to review it.
 
 Happy to adjust any public details before publication. Do you have permission for us to proceed with the listing, or would you like changes first?`,
       },
@@ -305,7 +371,10 @@ export function CallScriptsView() {
       />
 
       <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50/80 px-4 py-3 text-sm text-teal-900">
-        <strong>Current campaign rule:</strong> These calls request permission for the free Novalyte AI directory listing and verify public clinic details. Do not mention paid acquisition, advertising, or lead packages on these calls.
+        <strong>Tomorrow’s campaign rule:</strong> Permission first — free Novalyte directory listing only.
+        Be honest if asked about traffic (launching / first partners; platform live). Do not pitch paid
+        acquisition, advertising, or the full ecosystem. Nothing publishes without clinic review.
+        Use <strong>Founder-Led Call Mode</strong> in Dialpad for the live talking-point HUD.
       </div>
 
       <FilterBar
