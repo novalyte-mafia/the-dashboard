@@ -355,6 +355,8 @@ export async function endDialpadCall(input: {
   }
 
   // Live: CRM hangup. Operator still ends audio in Dialpad if the device is still up.
+  // Always queue enrichment so transcript + recording metadata still land in Supabase
+  // even if the Dialpad hangup webhook is delayed or missed.
   const updated = await db.callSession.update({
     where: { id: session.id },
     data: {
@@ -368,6 +370,7 @@ export async function endDialpadCall(input: {
       },
     },
   });
+  await scheduleEnrichment(session.id, session.providerCallId ?? null);
   dialpadLog("dialpad.call.ended", { call_session_id: session.id, mode: "live", by: input.adminId });
   return { call: sanitizeSession(updated as unknown as Record<string, unknown>), mode: "live" };
 }

@@ -928,6 +928,16 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
                 </div>
               )}
 
+              {!isMock && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-950">
+                  <strong>Recording required:</strong> Confirm Dialpad Call Recording + AI Transcription
+                  are ON for your user before clinic calls. Hang up in Dialpad (or End call here) — we
+                  queue enrichment so the recording URL, transcript segments, and call session save to
+                  Supabase automatically. After hangup, complete the post-call panel (permission,
+                  outcome, follow-up).
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Mic className="size-3" /> Recording:{" "}
