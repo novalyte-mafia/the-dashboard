@@ -187,11 +187,111 @@ export const directoryService = {
 // ---------------------------------------------------------------------------
 // Patient Service
 // ---------------------------------------------------------------------------
+type DbPatientLeadRow = {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  treatment_interest?: string | null;
+  symptoms?: string | null;
+  preferred_contact?: string | null;
+  insurance_preference?: string | null;
+  telehealth_preference?: string | null;
+  consent_contact?: boolean | null;
+  lead_source?: string | null;
+  source?: string | null;
+  campaign_source?: string | null;
+  qualification_score?: number | null;
+  urgency_score?: number | null;
+  status?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+  active_assignment?: {
+    clinic_id: string;
+    status?: string | null;
+    Clinic?: { id: string; name: string } | null;
+  } | null;
+};
+
+async function patientJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const r = await fetch(input, init);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error ?? "Patient leads request failed.");
+  return data as T;
+}
+
+function normalizePreferredContact(value?: string | null): PatientLead["preferredContact"] {
+  const v = (value ?? "phone").toLowerCase();
+  if (v === "email" || v === "sms" || v === "phone") return v;
+  if (v.includes("email")) return "email";
+  if (v.includes("sms") || v.includes("text")) return "sms";
+  return "phone";
+}
+
+function normalizeInsurance(value?: string | null): PatientLead["insurancePreference"] {
+  const v = (value ?? "").toLowerCase();
+  if (v.includes("self") || v.includes("cash")) return "self_pay";
+  if (v.includes("insur")) return "insurance";
+  return "unsure";
+}
+
+function parseTelehealthPreference(value?: string | null): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase();
+  return v === "true" || v === "yes" || v === "1" || v.includes("telehealth") || v.includes("remote");
+}
+
+function mapDbPatientLead(row: DbPatientLeadRow): PatientLead {
+  const name = `${row.first_name?.trim() ?? ""} ${row.last_name?.trim() ?? ""}`.trim() || "Unknown";
+  const clinic = row.active_assignment?.Clinic;
+
+  return {
+    id: row.id,
+    name,
+    email: row.email ?? undefined,
+    phone: row.phone ?? undefined,
+    city: row.city ?? undefined,
+    state: row.state ?? undefined,
+    zip: row.zip ?? undefined,
+    treatmentInterest: row.treatment_interest ?? "unknown",
+    symptoms: row.symptoms ?? undefined,
+    preferredContact: normalizePreferredContact(row.preferred_contact),
+    insurancePreference: normalizeInsurance(row.insurance_preference),
+    telehealthPreference: parseTelehealthPreference(row.telehealth_preference),
+    consentStatus: row.consent_contact ? "opted_in" : "unknown",
+    leadSource: row.lead_source ?? row.source ?? "direct",
+    campaignSource: row.campaign_source ?? undefined,
+    qualificationScore: row.qualification_score ?? 0,
+    urgencyScore: row.urgency_score ?? 0,
+    status: (row.status ?? "new") as PatientLead["status"],
+    assignedClinicId: clinic?.id ?? row.active_assignment?.clinic_id,
+    assignedClinicName: clinic?.name,
+    referralStatus: row.active_assignment?.status ?? undefined,
+    notes: row.notes ?? undefined,
+    createdAt: row.created_at ?? new Date().toISOString(),
+  };
+}
+
 export const patientService = {
   listLeads(status?: string): Promise<{ leads: PatientLead[] }> {
-    let leads = [...mocks.mockPatientLeads];
-    if (status) leads = leads.filter((l) => l.status === status);
-    return mockAsync({ leads });
+    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    return patientJson<{ leads: DbPatientLeadRow[] }>(`/api/patient-leads${qs}`).then((data) => ({
+      leads: (data.leads ?? []).map(mapDbPatientLead),
+    }));
+  },
+  assignLead(leadId: string, clinicId: string, explanation?: string) {
+    return patientJson<{ ok: boolean; message?: string }>(
+      `/api/patient-leads/${encodeURIComponent(leadId)}/assign`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clinicId, explanation: explanation ?? null }),
+      },
+    );
   },
   getMatches(leadId: string): Promise<{ matches: ClinicMatch[] }> {
     const matches = mocks.mockClinicMatches.filter((m) => m.patientLeadId === leadId);
