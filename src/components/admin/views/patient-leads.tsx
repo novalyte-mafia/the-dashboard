@@ -4,17 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 import { useNav } from "@/components/admin/admin-app";
 import {
   PageHeader, MetricCard, FilterBar, DataTable, LoadingState, EmptyState,
-  StatusBadge, ScoreBadge, DetailDrawer, SectionCard, type Column,
+  StatusBadge, ScoreBadge, DetailDrawer, SectionCard, ConfirmationDialog, type Column,
 } from "@/components/admin/shared";
 import { Button } from "@/components/ui/button";
 import {
   Users, Flame, MapPin, ArrowRightCircle, Phone, Mail, MessageSquare,
-  Building2, CalendarClock, Stethoscope, Activity, Inbox,
+  Building2, CalendarClock, Stethoscope, Activity, Inbox, Loader2, Send,
 } from "lucide-react";
-import { patientService } from "@/services";
+import { patientService, clinicService } from "@/services";
 import type { PatientLead } from "@/types";
 import { formatPhone, relativeTime, formatDate } from "@/lib/format";
 import { SERVICE_CATALOG, US_STATES } from "@/lib/constants";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 
 const STATUS_COLOR: Record<string, string> = {
   new: "teal",
@@ -75,14 +79,40 @@ export function PatientLeadsView() {
   const [search, setSearch] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<PatientLead | null>(null);
+  const [clinics, setClinics] = useState<{ id: string; name: string }[]>([]);
+  const [assignClinicId, setAssignClinicId] = useState("");
+  const [assignExplanation, setAssignExplanation] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [confirmAssign, setConfirmAssign] = useState(false);
 
-  useEffect(() => {
+  function loadLeads() {
     setLoading(true);
-    patientService
+    return patientService
       .listLeads()
       .then((d) => setLeads(d.leads))
+      .catch((err) => {
+        toast.error(err instanceof Error ? err.message : "Unable to load patient leads.");
+        setLeads([]);
+      })
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    void loadLeads();
   }, [refreshKey]);
+
+  useEffect(() => {
+    if (!selected || selected.assignedClinicId) {
+      setClinics([]);
+      setAssignClinicId("");
+      setAssignExplanation("");
+      return;
+    }
+    clinicService
+      .list({ pageSize: 100 })
+      .then((d) => setClinics(d.clinics.map((c) => ({ id: c.id, name: c.name }))))
+      .catch(() => setClinics([]));
+  }, [selected]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -103,6 +133,39 @@ export function PatientLeadsView() {
 
   const treatmentName = (slug: string) =>
     SERVICE_CATALOG.find((s) => s.slug === slug)?.name ?? slug;
+
+  async function handleAssign() {
+    if (!selected || !assignClinicId) return;
+    setAssigning(true);
+    try {
+      const result = await patientService.assignLead(
+        selected.id,
+        assignClinicId,
+        assignExplanation.trim() || undefined,
+      );
+      const clinicName = clinics.find((c) => c.id === assignClinicId)?.name ?? "Clinic";
+      toast.success(result.message ?? `Lead delivered to ${clinicName}.`);
+      await loadLeads();
+      setSelected((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "routed",
+              assignedClinicId: assignClinicId,
+              assignedClinicName: clinicName,
+              referralStatus: "delivered",
+            }
+          : null,
+      );
+      setAssignClinicId("");
+      setAssignExplanation("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unable to assign lead.");
+    } finally {
+      setAssigning(false);
+      setConfirmAssign(false);
+    }
+  }
 
   const columns: Column<PatientLead>[] = [
     {
@@ -272,18 +335,53 @@ export function PatientLeadsView() {
                 </p>
               </div>
             ) : (
-              <div className="rounded-md border border-teal-200 bg-teal-50 p-3">
-                <p className="text-xs text-teal-700 font-medium uppercase tracking-wide">No Clinic Assigned</p>
-                <p className="text-sm mt-0.5">Run clinic matching to find the best fit for this lead.</p>
-                <Button
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => {
-                    navigate("clinic-matching", null, { leadId: selected.id });
-                  }}
-                >
-                  <ArrowRightCircle className="size-4" /> Match with Clinics
-                </Button>
+              <div className="rounded-md border border-teal-200 bg-teal-50 p-3 space-y-3">
+                <div>
+                  <p className="text-xs text-teal-700 font-medium uppercase tracking-wide">No Clinic Assigned</p>
+                  <p className="text-sm mt-0.5">Push this lead to a clinic portal or run matching first.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Clinic</Label>
+                  <Select value={assignClinicId} onValueChange={setAssignClinicId}>
+                    <SelectTrigger className="bg-white">
+                      <SelectValue placeholder={clinics.length ? "Select clinic" : "Loading clinics…"} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      {clinics.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Routing note (optional)</Label>
+                  <Textarea
+                    value={assignExplanation}
+                    onChange={(e) => setAssignExplanation(e.target.value)}
+                    rows={2}
+                    placeholder="Why this clinic is a fit…"
+                    className="bg-white resize-none"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    disabled={!assignClinicId || assigning}
+                    onClick={() => setConfirmAssign(true)}
+                  >
+                    {assigning ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                    Assign to Clinic
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      navigate("clinic-matching", null, { leadId: selected.id });
+                    }}
+                  >
+                    <ArrowRightCircle className="size-4" /> Match with Clinics
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -302,6 +400,19 @@ export function PatientLeadsView() {
           </div>
         )}
       </DetailDrawer>
+
+      <ConfirmationDialog
+        open={confirmAssign}
+        onOpenChange={setConfirmAssign}
+        title="Assign lead to clinic?"
+        description={
+          selected && assignClinicId
+            ? `${selected.name} will be delivered to ${clinics.find((c) => c.id === assignClinicId)?.name ?? "the selected clinic"}'s portal inbox.`
+            : ""
+        }
+        confirmLabel="Assign"
+        onConfirm={() => void handleAssign()}
+      />
     </div>
   );
 }
