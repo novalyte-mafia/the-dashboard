@@ -83,12 +83,13 @@ const GeographicDemandView = lazy(() => import("@/components/admin/views/geograp
 const KeywordClustersView = lazy(() => import("@/components/admin/views/keyword-clusters").then((m) => ({ default: m.KeywordClustersView })));
 const RisingMarketsView = lazy(() => import("@/components/admin/views/rising-markets").then((m) => ({ default: m.RisingMarketsView })));
 const CoverageGapsView = lazy(() => import("@/components/admin/views/coverage-gaps").then((m) => ({ default: m.CoverageGapsView })));
-const CampaignDashboardView = lazy(() => import("@/components/admin/views/campaign-dashboard").then((m) => ({ default: m.CampaignDashboardView })));
-const CampaignBuilderView = lazy(() => import("@/components/admin/views/campaign-builder").then((m) => ({ default: m.CampaignBuilderView })));
+const CampaignOverviewView = lazy(() => import("@/components/admin/views/campaign-overview").then((m) => ({ default: m.CampaignOverviewView })));
+const CampaignWizardView = lazy(() => import("@/components/admin/views/campaign-wizard").then((m) => ({ default: m.CampaignWizardView })));
+const CampaignDetailView = lazy(() => import("@/components/admin/views/campaign-detail").then((m) => ({ default: m.CampaignDetailView })));
 const LandingPagesView = lazy(() => import("@/components/admin/views/landing-pages").then((m) => ({ default: m.LandingPagesView })));
-const CreativeLibraryView = lazy(() => import("@/components/admin/views/creative-library").then((m) => ({ default: m.CreativeLibraryView })));
-const BudgetManagementView = lazy(() => import("@/components/admin/views/budget-management").then((m) => ({ default: m.BudgetManagementView })));
-const LeadAttributionView = lazy(() => import("@/components/admin/views/lead-attribution").then((m) => ({ default: m.LeadAttributionView })));
+const PageEditorView = lazy(() => import("@/components/admin/views/page-editor").then((m) => ({ default: m.PageEditorView })));
+const TemplatesView = lazy(() => import("@/components/admin/views/templates").then((m) => ({ default: m.TemplatesView })));
+const CampaignAnalyticsView = lazy(() => import("@/components/admin/views/campaign-analytics").then((m) => ({ default: m.CampaignAnalyticsView })));
 const WorkforceOverviewView = lazy(() => import("@/components/admin/views/workforce-overview").then((m) => ({ default: m.WorkforceOverviewView })));
 const ProfessionalsView = lazy(() => import("@/components/admin/views/professionals").then((m) => ({ default: m.ProfessionalsView })));
 const JobsView = lazy(() => import("@/components/admin/views/jobs").then((m) => ({ default: m.JobsView })));
@@ -175,12 +176,18 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "keyword-clusters": KeywordClustersView,
   "rising-markets": RisingMarketsView,
   "coverage-gaps": CoverageGapsView,
-  "campaign-dashboard": CampaignDashboardView,
-  "campaign-builder": CampaignBuilderView,
+  "campaign-overview": CampaignOverviewView,
+  "campaign-wizard": CampaignWizardView,
+  "campaign-detail": CampaignDetailView,
   "landing-pages": LandingPagesView,
-  "creative-library": CreativeLibraryView,
-  "budget-management": BudgetManagementView,
-  "lead-attribution": LeadAttributionView,
+  "page-editor": PageEditorView,
+  "templates": TemplatesView,
+  "campaign-analytics": CampaignAnalyticsView,
+  "campaign-dashboard": CampaignOverviewView,
+  "campaign-builder": CampaignWizardView,
+  "creative-library": TemplatesView,
+  "budget-management": CampaignAnalyticsView,
+  "lead-attribution": CampaignAnalyticsView,
   "workforce-overview": WorkforceOverviewView,
   "professionals": ProfessionalsView,
   "jobs": JobsView,
