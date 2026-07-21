@@ -12,7 +12,7 @@ import {
   LayoutDashboard, ListChecks, TrendingUp, Building2, PhoneCall, CalendarCheck,
   Users, Mail, FileText, DollarSign, CreditCard, BarChart3, Globe2, ShieldCheck,
   Stethoscope, MapPin, Megaphone, Briefcase, ShoppingCart, PenTool, Cpu,
-  Activity as ActivityIcon, Settings as SettingsIcon,
+  Activity as ActivityIcon, Settings as SettingsIcon, Search,
   Menu, LogOut, ChevronDown, ChevronRight, BookOpen, type LucideIcon,
 } from "lucide-react";
 import { initials } from "@/lib/format";
@@ -104,14 +104,14 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: "growth", label: "Growth and Advertising", icon: Megaphone,
+    id: "campaign-studio", label: "Campaign Studio", icon: Megaphone,
     items: [
-      { id: "campaign-dashboard", label: "Campaign Dashboard", icon: Megaphone },
-      { id: "campaign-builder", label: "Campaign Builder", icon: Megaphone },
+      { id: "campaign-overview", label: "Campaign Overview", icon: Megaphone },
+      { id: "campaign-wizard", label: "Campaign Wizard", icon: Megaphone },
       { id: "landing-pages", label: "Landing Pages", icon: Globe2 },
-      { id: "creative-library", label: "Creative Library", icon: FileText },
-      { id: "budget-management", label: "Budget Management", icon: DollarSign },
-      { id: "lead-attribution", label: "Lead Attribution", icon: BarChart3 },
+      { id: "templates", label: "Templates", icon: FileText },
+      { id: "campaign-analytics", label: "Campaign Analytics", icon: BarChart3 },
+      { id: "media-library", label: "Media Library", icon: FileText },
     ],
   },
   {
@@ -340,5 +340,3 @@ export function Sidebar({
     </>
   );
 }
-
-import { Search } from "lucide-react";
