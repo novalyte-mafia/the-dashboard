@@ -45,6 +45,7 @@ const PrioritiesView = lazy(() => import("@/components/admin/views/priorities").
 const RevenueOverviewView = lazy(() => import("@/components/admin/views/revenue-overview").then((m) => ({ default: m.RevenueOverviewView })));
 const OperationsOverviewView = lazy(() => import("@/components/admin/views/operations-overview").then((m) => ({ default: m.OperationsOverviewView })));
 const AlertsView = lazy(() => import("@/components/admin/views/alerts").then((m) => ({ default: m.AlertsView })));
+const FormSubmissionsView = lazy(() => import("@/components/admin/views/form-submissions").then((m) => ({ default: m.FormSubmissionsView })));
 const ActivityView = lazy(() => import("@/components/admin/views/activity").then((m) => ({ default: m.ActivityView })));
 const ClinicsView = lazy(() => import("@/components/admin/views/clinics").then((m) => ({ default: m.ClinicsView })));
 const ClinicDetailView = lazy(() => import("@/components/admin/views/clinic-detail").then((m) => ({ default: m.ClinicDetailView })));
@@ -138,6 +139,7 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "revenue-overview": RevenueOverviewView,
   "operations-overview": OperationsOverviewView,
   "alerts": AlertsView,
+  "form-submissions": FormSubmissionsView,
   "activity": ActivityView,
   "clinics": ClinicsView,
   "clinic-detail": ClinicDetailView,

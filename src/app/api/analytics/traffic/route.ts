@@ -37,8 +37,8 @@ export async function GET(request: NextRequest) {
   const posthogProjectId = projectId;
   // Client events carry $host/$current_url; server conversions carry environment=production.
   const productionFilter = `(
-    properties.$host = 'novalyte.io'
-    OR startsWith(toString(properties.$current_url), 'https://novalyte.io')
+    properties.$host IN ('novalyte.io', 'www.novalyte.io', 'ads.novalyte.io', 'investor.novalyte.io', 'portal.novalyte.io')
+    OR match(toString(properties.$current_url), '^https://(www\\\\.|ads\\\\.|investor\\\\.|portal\\\\.)?novalyte\\\\.io')
     OR (
       toString(properties.environment) = 'production'
       AND toString(properties.capture_source) = 'server'
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
             countIf(event = 'directory_search_submitted') AS directory_searches,
             countIf(event = 'booking_link_clicked') AS booking_clicks,
             countIf(event = 'assessment_started') AS assessments_started,
-            countIf(event = 'assessment_completed') AS assessments_completed,
+            countIf(event IN ('assessment_completed', 'assessment_submitted', 'campaign_assessment_completed')) AS assessments_completed,
             countIf(event = 'clinic_application_submitted') AS clinic_applications,
             countIf(event IN ('professional_registration_started', 'employer_registration_started')) AS workforce_registrations
           FROM events

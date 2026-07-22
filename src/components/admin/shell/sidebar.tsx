@@ -40,6 +40,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "revenue-overview", label: "Revenue Overview", icon: TrendingUp },
       { id: "operations-overview", label: "Operations Overview", icon: ActivityIcon },
       { id: "alerts", label: "Alerts", icon: ShieldCheck },
+      { id: "form-submissions", label: "Forms & Notifications", icon: Mail },
       { id: "activity", label: "Global Activity", icon: ActivityIcon },
     ],
   },
