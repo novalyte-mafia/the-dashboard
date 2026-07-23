@@ -850,3 +850,152 @@ export async function bindPageAssessment(
 
   return data as CsPage;
 }
+
+export async function createDraftAssessmentVersion(
+  templateId: string,
+  fromVersionId?: string,
+): Promise<CsAssessmentTemplateVersion> {
+  const template = await getAssessmentTemplate(templateId);
+  if (!template) throw new Error("Assessment template not found.");
+
+  const source =
+    (fromVersionId
+      ? template.versions.find((v) => v.id === fromVersionId)
+      : undefined) ??
+    template.versions.find((v) => v.status === "published") ??
+    template.versions[0];
+
+  const nextVersion =
+    template.versions.reduce((max, v) => Math.max(max, v.version), 0) + 1;
+
+  const { defaultQuestionsForEngine, questionsFromVersionConfig, syncQuestionIdArrays } =
+    await import("@/lib/campaigns/assessment-questions");
+
+  const questions = source
+    ? questionsFromVersionConfig(source.config, template.assessment_engine_slug)
+    : defaultQuestionsForEngine(template.assessment_engine_slug);
+  const ids = syncQuestionIdArrays(questions);
+
+  const config = {
+    ...(source?.config ?? {}),
+    engine_slug: template.assessment_engine_slug,
+    mode: template.mode,
+    questions,
+  };
+
+  const { data, error } = await sb()
+    .from("cs_assessment_template_versions")
+    .insert({
+      template_id: templateId,
+      version: nextVersion,
+      status: "draft",
+      config,
+      question_ids: ids.question_ids,
+      required_question_ids: ids.required_question_ids,
+      optional_question_ids: ids.optional_question_ids,
+      eligibility_rules: source?.eligibility_rules ?? {},
+      disqualification_rules: source?.disqualification_rules ?? {},
+      consent_version: source?.consent_version ?? "v1",
+      consent_copy: source?.consent_copy ?? null,
+      completion_message: source?.completion_message ?? null,
+      next_action: source?.next_action ?? "directory",
+    })
+    .select("*")
+    .single();
+  throwIfError(error, "createDraftAssessmentVersion");
+  return data as CsAssessmentTemplateVersion;
+}
+
+export async function updateDraftAssessmentVersion(
+  versionId: string,
+  input: {
+    questions?: unknown[];
+    config?: Record<string, unknown>;
+    consent_copy?: string | null;
+    completion_message?: string | null;
+    next_action?: string;
+  },
+): Promise<CsAssessmentTemplateVersion> {
+  const { data: existing, error: getErr } = await sb()
+    .from("cs_assessment_template_versions")
+    .select("*")
+    .eq("id", versionId)
+    .maybeSingle();
+  throwIfError(getErr, "updateDraftAssessmentVersion.get");
+  if (!existing) throw new Error("Assessment version not found.");
+  if ((existing as CsAssessmentTemplateVersion).status !== "draft") {
+    throw new Error("Only draft versions can be edited. Create a new draft first.");
+  }
+
+  const { syncQuestionIdArrays } = await import("@/lib/campaigns/assessment-questions");
+  const current = existing as CsAssessmentTemplateVersion;
+  const nextConfig = {
+    ...current.config,
+    ...(input.config ?? {}),
+  } as Record<string, unknown>;
+  if (input.questions) {
+    nextConfig.questions = input.questions;
+  }
+  const questions = Array.isArray(nextConfig.questions) ? nextConfig.questions : [];
+  const ids = syncQuestionIdArrays(
+    questions as import("@/lib/campaigns/assessment-questions").EditableQuestion[],
+  );
+
+  const patch: Record<string, unknown> = {
+    config: nextConfig,
+    question_ids: ids.question_ids,
+    required_question_ids: ids.required_question_ids,
+    optional_question_ids: ids.optional_question_ids,
+  };
+  if (input.consent_copy !== undefined) patch.consent_copy = input.consent_copy;
+  if (input.completion_message !== undefined) patch.completion_message = input.completion_message;
+  if (input.next_action !== undefined) patch.next_action = input.next_action;
+
+  const { data, error } = await sb()
+    .from("cs_assessment_template_versions")
+    .update(patch)
+    .eq("id", versionId)
+    .select("*")
+    .single();
+  throwIfError(error, "updateDraftAssessmentVersion");
+  return data as CsAssessmentTemplateVersion;
+}
+
+export async function publishAssessmentVersion(
+  versionId: string,
+  adminId?: string,
+): Promise<CsAssessmentTemplateVersion> {
+  const { data: existing, error: getErr } = await sb()
+    .from("cs_assessment_template_versions")
+    .select("*")
+    .eq("id", versionId)
+    .maybeSingle();
+  throwIfError(getErr, "publishAssessmentVersion.get");
+  if (!existing) throw new Error("Assessment version not found.");
+
+  const version = existing as CsAssessmentTemplateVersion;
+  const questions = Array.isArray(version.config?.questions) ? version.config.questions : [];
+  if (questions.length === 0) {
+    throw new Error("Cannot publish a version with no questions.");
+  }
+
+  await sb()
+    .from("cs_assessment_template_versions")
+    .update({ status: "retired" })
+    .eq("template_id", version.template_id)
+    .eq("status", "published");
+
+  const { data, error } = await sb()
+    .from("cs_assessment_template_versions")
+    .update({
+      status: "published",
+      approved_by: adminId ?? null,
+      approved_at: new Date().toISOString(),
+    })
+    .eq("id", versionId)
+    .select("*")
+    .single();
+  throwIfError(error, "publishAssessmentVersion");
+  return data as CsAssessmentTemplateVersion;
+}
+

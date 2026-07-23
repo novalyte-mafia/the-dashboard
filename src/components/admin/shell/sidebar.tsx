@@ -13,7 +13,7 @@ import {
   Users, Mail, FileText, DollarSign, CreditCard, BarChart3, Globe2, ShieldCheck,
   Stethoscope, MapPin, Megaphone, Briefcase, ShoppingCart, PenTool, Cpu,
   Activity as ActivityIcon, Settings as SettingsIcon, Search,
-  Menu, LogOut, ChevronDown, ChevronRight, BookOpen, type LucideIcon,
+  Menu, LogOut, ChevronDown, ChevronRight, BookOpen, ClipboardList, type LucideIcon,
 } from "lucide-react";
 import { initials } from "@/lib/format";
 import { appConfig } from "@/config/app-config";
@@ -102,6 +102,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "keyword-clusters", label: "Keyword Clusters", icon: Search },
       { id: "rising-markets", label: "Rising Markets", icon: TrendingUp },
       { id: "coverage-gaps", label: "Clinic Coverage Gaps", icon: Globe2 },
+      { id: "campaign-opportunities", label: "Campaign Opportunities", icon: Megaphone },
     ],
   },
   {
@@ -111,6 +112,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "campaign-wizard", label: "Campaign Wizard", icon: Megaphone },
       { id: "landing-pages", label: "Landing Pages", icon: Globe2 },
       { id: "templates", label: "Templates", icon: FileText },
+      { id: "assessment-template-editor", label: "Assessment Editor", icon: ClipboardList },
       { id: "campaign-analytics", label: "Campaign Analytics", icon: BarChart3 },
       { id: "media-library", label: "Media Library", icon: FileText },
     ],

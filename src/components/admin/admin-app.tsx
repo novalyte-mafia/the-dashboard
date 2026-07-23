@@ -90,6 +90,8 @@ const CampaignDetailView = lazy(() => import("@/components/admin/views/campaign-
 const LandingPagesView = lazy(() => import("@/components/admin/views/landing-pages").then((m) => ({ default: m.LandingPagesView })));
 const PageEditorView = lazy(() => import("@/components/admin/views/page-editor").then((m) => ({ default: m.PageEditorView })));
 const TemplatesView = lazy(() => import("@/components/admin/views/templates").then((m) => ({ default: m.TemplatesView })));
+const AssessmentTemplateEditorView = lazy(() => import("@/components/admin/views/assessment-template-editor").then((m) => ({ default: m.AssessmentTemplateEditorView })));
+const CampaignOpportunitiesView = lazy(() => import("@/components/admin/views/campaign-opportunities").then((m) => ({ default: m.CampaignOpportunitiesView })));
 const CampaignAnalyticsView = lazy(() => import("@/components/admin/views/campaign-analytics").then((m) => ({ default: m.CampaignAnalyticsView })));
 const WorkforceOverviewView = lazy(() => import("@/components/admin/views/workforce-overview").then((m) => ({ default: m.WorkforceOverviewView })));
 const ProfessionalsView = lazy(() => import("@/components/admin/views/professionals").then((m) => ({ default: m.ProfessionalsView })));
@@ -178,12 +180,14 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "keyword-clusters": KeywordClustersView,
   "rising-markets": RisingMarketsView,
   "coverage-gaps": CoverageGapsView,
+  "campaign-opportunities": CampaignOpportunitiesView,
   "campaign-overview": CampaignOverviewView,
   "campaign-wizard": CampaignWizardView,
   "campaign-detail": CampaignDetailView,
   "landing-pages": LandingPagesView,
   "page-editor": PageEditorView,
   "templates": TemplatesView,
+  "assessment-template-editor": AssessmentTemplateEditorView,
   "campaign-analytics": CampaignAnalyticsView,
   "campaign-dashboard": CampaignOverviewView,
   "campaign-builder": CampaignWizardView,

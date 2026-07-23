@@ -28,7 +28,7 @@ type AssessmentTemplate = {
 };
 
 export function TemplatesView() {
-  const { refreshKey } = useNav();
+  const { refreshKey, navigate } = useNav();
   const [pageTemplates, setPageTemplates] = useState<PageTemplate[]>([]);
   const [assessments, setAssessments] = useState<AssessmentTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,7 +92,12 @@ export function TemplatesView() {
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {assessments.map((a) => (
-              <div key={a.id} className="rounded-lg border p-4">
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => navigate("assessment-template-editor", null, { templateId: a.id })}
+                className="rounded-lg border p-4 text-left transition hover:border-teal-300 hover:shadow-sm"
+              >
                 <p className="font-medium">{a.name}</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {a.category} · {a.mode}
@@ -103,7 +108,8 @@ export function TemplatesView() {
                     Published version {a.latestVersion.version}
                   </p>
                 )}
-              </div>
+                <p className="text-xs text-teal-700 mt-2 font-medium">Edit questions →</p>
+              </button>
             ))}
           </div>
         )}
