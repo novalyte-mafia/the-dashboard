@@ -58,3 +58,9 @@ server.log
 # testing and local config
 .playwright-cli/
 supabase/.temp/
+.env*.local
+
+.firecrawl/
+scripts/reports/*.json
+scripts/reports/*.csv
+scripts/reports/*.log

@@ -2617,8 +2617,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
   // so the founder can read coach replies without visual noise.
   const isLiveFocus = ["configuring", "dialing", "ringing", "connected", "on_hold"].includes(callState);
 
-  // Dialpad mode renders its own self-contained workspace: calls ring the
-  // Dialpad app, the dashboard tracks the synchronized session.
+  // Founder-Led mode: Telnyx WebRTC in-browser softphone + cue card + copilot.
   if (isDialpadMode) {
     return (
       <div className="space-y-4">
@@ -2626,17 +2625,17 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
           <div>
             <h1 className="font-bold tracking-tight text-2xl">Founder-Led Call Mode</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              You are speaking. Dialpad handles the phone. No AI voice. Novalyte keeps briefing, talk tracks, notes, outcomes, and artifacts.
+              Dial on your personal phone while the silent AI coach listens via mic and cues you on screen. No AI voice on the call.
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <Badge className="bg-sky-700 text-white">Primary · Dialpad</Badge>
+            <Badge className="bg-violet-700 text-white">Primary · Personal phone + coach</Badge>
             <button
               type="button"
               className="text-[11px] text-muted-foreground underline-offset-2 hover:underline"
               onClick={() => setShowPracticeAdvanced((v) => !v)}
             >
-              {showPracticeAdvanced ? "Hide Practice / Advanced" : "Practice / Advanced (Telnyx · Simulation)"}
+              {showPracticeAdvanced ? "Hide Practice / Advanced" : "Practice / Advanced (stereo coach · Simulation)"}
             </button>
             {showPracticeAdvanced && (
               <div className="flex items-center gap-1.5 bg-card border rounded-lg px-2 py-1.5 shadow-sm">
@@ -2645,11 +2644,11 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                     setIsDialpadMode(false);
                     setIsPracticeMode(false);
                     setIsLiveMode(true);
-                    toast.message("Telnyx Live is advanced practice — Founder-Led Dialpad remains the primary path.");
+                    toast.message("Advanced Live keeps stereo Deepgram coaching — Founder-Led remains the primary path.");
                   }}
                   className="text-xs px-2.5 py-1.5 rounded font-bold hover:bg-accent text-muted-foreground"
                 >
-                  Telnyx Live
+                  Advanced Live
                 </button>
                 <button
                   onClick={() => {
@@ -2738,7 +2737,7 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
                 setIsDialpadMode(true);
                 setIsPracticeMode(false);
                 setIsLiveMode(false);
-                toast.success("Founder-Led Dialpad — primary calling path.");
+                toast.success("Founder-Led — in-browser Telnyx calling.");
               }}
               className="text-xs px-2.5 py-1.5 rounded font-bold transition-all bg-sky-600 text-white shadow-sm border border-sky-700"
             >

@@ -170,7 +170,14 @@ export type CallAssist = {
   dismissSuggestion: () => void;
 };
 
-export function useCallAssist({ callActive }: { callActive: boolean }): CallAssist {
+export function useCallAssist({
+  callActive,
+  autoStartCoach = false,
+}: {
+  callActive: boolean;
+  /** When true (personal-phone mode), start Deepgram coach as soon as the session is active. */
+  autoStartCoach?: boolean;
+}): CallAssist {
   const [micOn, setMicOn] = useState(false);
   const [coachOn, setCoachOn] = useState(false);
   const [coachConnecting, setCoachConnecting] = useState(false);
@@ -251,7 +258,7 @@ export function useCallAssist({ callActive }: { callActive: boolean }): CallAssi
       ws.onopen = () => {
         setCoachOn(true);
         setCoachConnecting(false);
-        toast.success("AI coach is listening. Put Dialpad on speaker so it hears the clinic too.");
+        toast.success("AI coach is listening on your mic — speak normally in this browser.");
         let mimeType = "audio/webm";
         if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = "audio/ogg";
         if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = "";
@@ -297,14 +304,19 @@ export function useCallAssist({ callActive }: { callActive: boolean }): CallAssi
   }, [coachOn, coachConnecting, startMic]);
 
   // Auto-arm the mic (waveform) when the call goes active; tear down when it ends.
+  // Personal-phone mode also starts the silent coach immediately.
   useEffect(() => {
     if (callActive) {
-      void startMic().catch(() => undefined);
+      void startMic()
+        .then(() => {
+          if (autoStartCoach) void startCoach();
+        })
+        .catch(() => undefined);
     } else {
       stopAssist();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callActive]);
+  }, [callActive, autoStartCoach]);
 
   useEffect(() => () => stopAssist(), [stopAssist]);
 
@@ -329,11 +341,14 @@ export function useCallAssist({ callActive }: { callActive: boolean }): CallAssi
 const STATUS_META: Record<string, { label: string; tone: string; pulse: boolean }> = {
   queued: { label: "Queued", tone: "bg-slate-400", pulse: true },
   initiating: { label: "Calling...", tone: "bg-amber-500", pulse: true },
+  dialing: { label: "Dialing...", tone: "bg-amber-500", pulse: true },
   ringing: { label: "Ringing...", tone: "bg-amber-500", pulse: true },
   connected: { label: "Connected", tone: "bg-emerald-500", pulse: false },
   active: { label: "Connected", tone: "bg-emerald-500", pulse: false },
   held: { label: "On hold", tone: "bg-sky-500", pulse: true },
+  on_hold: { label: "On hold", tone: "bg-sky-500", pulse: true },
   completed: { label: "Call ended", tone: "bg-slate-500", pulse: false },
+  ended: { label: "Call ended", tone: "bg-slate-500", pulse: false },
   canceled: { label: "No answer", tone: "bg-rose-500", pulse: false },
   failed: { label: "Failed", tone: "bg-rose-600", pulse: false },
   missed: { label: "Missed", tone: "bg-rose-500", pulse: false },
@@ -394,7 +409,7 @@ function useMockCallAudio(status: string, enabled: boolean) {
       stop();
       return;
     }
-    const ringing = status === "initiating" || status === "ringing" || status === "queued";
+    const ringing = status === "initiating" || status === "dialing" || status === "ringing" || status === "queued";
     const connected = status === "connected" || status === "active";
 
     stop();
@@ -426,6 +441,7 @@ export function CallHud({
   status,
   durationLabel,
   isMock,
+  isPersonalPhone = false,
   callActive,
   assist,
   ending,
@@ -437,12 +453,16 @@ export function CallHud({
   status: string;
   durationLabel: string;
   isMock: boolean;
+  /** Founder dials on a real phone; this browser only coaches via mic. */
+  isPersonalPhone?: boolean;
   callActive: boolean;
   assist: CallAssist;
   ending?: boolean;
   onEndCall?: () => void;
 }) {
-  const meta = STATUS_META[status] ?? { label: status, tone: "bg-slate-400", pulse: false };
+  const meta = isPersonalPhone && (status === "connected" || status === "active")
+    ? { label: "Personal phone · coaching", tone: "bg-violet-500", pulse: false }
+    : STATUS_META[status] ?? { label: status, tone: "bg-slate-400", pulse: false };
   const initials = clinicName
     .split(/\s+/)
     .slice(0, 2)
@@ -491,7 +511,7 @@ export function CallHud({
             onClick={onEndCall}
           >
             <PhoneOff className="size-4 mr-2" />
-            {ending ? "Ending..." : "End call"}
+            {ending ? "Ending..." : isPersonalPhone ? "End coaching session" : "End call"}
           </Button>
         </div>
       )}
@@ -523,13 +543,18 @@ export function CallHud({
         {isMock ? (
           <span>
             Mock mode has no real phone audio. You should hear a simulated ringtone in this browser
-            while it says Ringing, then a short connect chime. Unmute your speakers. Real clinic
-            voices only play through the Dialpad app in live mode.
+            while it says Ringing, then a short connect chime. Unmute your speakers.
+          </span>
+        ) : isPersonalPhone ? (
+          <span>
+            Dial on your personal phone. Keep this tab open. Put the call on speaker near the laptop
+            mic (or use earbuds for you). Coach cues stay on screen — mute laptop speakers so the
+            clinic never hears the AI.
           </span>
         ) : (
           <span>
-            Phone audio plays in the Dialpad app on your phone or computer - not in this browser.
-            Answer and speak there. This screen is your cue card and CRM. Hang up here or in Dialpad.
+            Audio is in this browser — allow mic access, unmute speakers, and speak here. This screen
+            is also your cue card, copilot, and CRM. End the call with the hang-up control above.
           </span>
         )}
       </div>

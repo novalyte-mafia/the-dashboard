@@ -9,7 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   PhoneCall,
-  PhoneOff,
   Building2,
   MapPin,
   Clock,
@@ -35,32 +34,30 @@ import {
   FOUNDER_OBJECTIVE_CHECKLIST,
   FOUNDER_QUICK_RESPONSES,
 } from "@/lib/calls/founder-led-script";
-import { DialpadCti } from "./dialpad-cti";
 import { CallHud, CopilotPanel, DialKeypad, useCallAssist } from "./founder-call-hud";
+import { useTelnyxFounderCall, type FounderCallStatus } from "@/hooks/use-telnyx-founder-call";
 
 /**
- * Founder-Led Call Mode (Dialpad).
+ * Founder-Led Call Mode.
  *
- * You speak in Dialpad with your real voice. Novalyte shows briefing, talk
- * tracks, recovery, checklist, notes, outcomes, and artifact status.
+ * Paths:
+ * 1. Personal phone (default for today) — you dial on your phone; this tab coaches via mic.
+ * 2. Telnyx browser softphone — you speak in-browser when Telnyx is configured.
+ *
+ * AI never speaks as the founder. Suggestions stay on screen.
  */
 
-interface IntegrationStatus {
-  enabled: boolean;
+interface TelephonyStatus {
+  provider: string;
   mode: string;
+  enabled: boolean;
   configured: boolean;
   configErrors: string[];
-  apiConnection: string;
-  apiConnectionError?: string;
-  dialpadUserConfigured: boolean;
-  dialpadUserDisplayName?: string;
-  outboundCallerId?: string;
-  webhookSecretConfigured: boolean;
-  ctiEnabled: boolean;
-  ctiProvisioned: boolean;
-  lastWebhookAt: string | null;
-  lastProviderError: string | null;
-  pendingEnrichmentJobs: number;
+  callerNumber: string | null;
+  dialpadRequired: boolean;
+  audio: string;
+  personalPhoneReady?: boolean;
+  deepgramConfigured?: boolean;
 }
 
 interface QueueClinic {
@@ -83,7 +80,7 @@ interface QueueClinic {
   followUp: { id: string; dueDate?: string } | null;
 }
 
-interface DialpadCall {
+interface FounderCall {
   id: string;
   clinicId: string;
   status: string;
@@ -104,6 +101,7 @@ interface DialpadCall {
   mode: string | null;
   trainingReviewStatus?: string | null;
   attemptNumber?: number | null;
+  provider?: string | null;
 }
 
 interface TranscriptSegment {
@@ -115,9 +113,10 @@ interface TranscriptSegment {
   startedAt: string | null;
 }
 
-const ACTIVE_STATUSES = ["queued", "initiating", "ringing", "connected", "active", "held"];
+const ACTIVE_STATUSES = ["queued", "initiating", "dialing", "ringing", "connected", "active", "held", "on_hold"];
 const TERMINAL_LABELS: Record<string, string> = {
   completed: "Completed",
+  ended: "Ended",
   canceled: "No answer / canceled",
   failed: "Failed",
   missed: "Missed",
@@ -135,24 +134,83 @@ const TRAINING_REVIEW_OPTIONS = [
   { id: "compliance_hold", label: "Compliance hold" },
 ];
 
+function mapUiStatusToDb(status: FounderCallStatus): string {
+  if (status === "completed" || status === "canceled") return "ended";
+  if (status === "initiating") return "connecting";
+  return status;
+}
+
 function statusTone(status: string): string {
   if (["connected", "active"].includes(status)) return "bg-emerald-100 text-emerald-800 border-emerald-300";
-  if (["ringing", "initiating", "queued"].includes(status)) return "bg-amber-100 text-amber-800 border-amber-300";
-  if (["held"].includes(status)) return "bg-sky-100 text-sky-800 border-sky-300";
+  if (["ringing", "initiating", "dialing", "queued"].includes(status)) return "bg-amber-100 text-amber-800 border-amber-300";
+  if (["held", "on_hold"].includes(status)) return "bg-sky-100 text-sky-800 border-sky-300";
   if (["failed", "missed", "canceled"].includes(status)) return "bg-rose-100 text-rose-800 border-rose-300";
-  if (status === "completed") return "bg-slate-100 text-slate-700 border-slate-300";
+  if (status === "completed" || status === "ended") return "bg-slate-100 text-slate-700 border-slate-300";
   return "bg-slate-100 text-slate-600 border-slate-300";
 }
 
 function copyLine(line: string) {
   void navigator.clipboard?.writeText(line).then(
-    () => toast.success("Copied — say it in Dialpad"),
+    () => toast.success("Copied — say it on this call"),
     () => toast.message(line),
   );
 }
 
+function normalizeHistoryCall(raw: Record<string, unknown>): FounderCall {
+  const metadata =
+    typeof raw.metadata === "string"
+      ? (() => {
+          try {
+            return JSON.parse(raw.metadata) as Record<string, unknown>;
+          } catch {
+            return {};
+          }
+        })()
+      : ((raw.metadata as Record<string, unknown> | null) ?? {});
+  const structured =
+    typeof raw.structuredData === "string"
+      ? (() => {
+          try {
+            return JSON.parse(raw.structuredData) as Record<string, unknown>;
+          } catch {
+            return {};
+          }
+        })()
+      : ((raw.structuredData as Record<string, unknown> | null) ?? {});
+  const providerMeta = (raw.providerMetadata as Record<string, unknown> | null) ?? {};
+  return {
+    id: String(raw.id),
+    clinicId: String(raw.clinicId ?? ""),
+    status: String(raw.status ?? "ended"),
+    startedAt: raw.startedAt ? String(raw.startedAt) : null,
+    ringingAt: raw.ringingAt ? String(raw.ringingAt) : null,
+    connectedAt: raw.connectedAt ? String(raw.connectedAt) : null,
+    endedAt: raw.endedAt ? String(raw.endedAt) : null,
+    durationMs: typeof raw.durationMs === "number" ? raw.durationMs : null,
+    durationSec: typeof raw.durationSec === "number" ? raw.durationSec : null,
+    externalNumber: (raw.externalNumber as string | null) ?? (metadata.phoneNumber as string | null) ?? null,
+    transcriptStatus: (raw.transcriptStatus as string | null) ?? "none",
+    recordingAvailable: Boolean(raw.recordingAvailable ?? raw.recordingUrl),
+    failureCode: (raw.failureCode as string | null) ?? null,
+    failureMessage: (raw.failureMessage as string | null) ?? null,
+    outcome: (raw.outcome as string | null) ?? null,
+    notes: (raw.notes as string | null) ?? null,
+    recapSummary:
+      typeof providerMeta.recap_summary === "string"
+        ? providerMeta.recap_summary
+        : typeof structured.summary === "string"
+          ? structured.summary
+          : null,
+    mode: (providerMeta.mode as string | null) ?? (structured.mode as string | null) ?? null,
+    trainingReviewStatus: (raw.trainingReviewStatus as string | null) ?? null,
+    attemptNumber: typeof raw.attemptNumber === "number" ? raw.attemptNumber : null,
+    provider: (raw.provider as string | null) ?? null,
+  };
+}
+
 export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: string | null }) {
-  const [status, setStatus] = useState<IntegrationStatus | null>(null);
+  const telnyx = useTelnyxFounderCall();
+  const [status, setStatus] = useState<TelephonyStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [queue, setQueue] = useState<QueueClinic[]>([]);
   const [queueLoading, setQueueLoading] = useState(true);
@@ -160,9 +218,11 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
   const [selectedClinic, setSelectedClinic] = useState<QueueClinic | null>(null);
   const [clinicDetail, setClinicDetail] = useState<Record<string, unknown> | null>(null);
   const [initiating, setInitiating] = useState(false);
-  const [activeCall, setActiveCall] = useState<DialpadCall | null>(null);
+  /** personal_phone = dial on your phone + ambient coach; browser = Telnyx WebRTC */
+  const [dialPath, setDialPath] = useState<"personal_phone" | "browser">("personal_phone");
+  const [activeCall, setActiveCall] = useState<FounderCall | null>(null);
   const [ending, setEnding] = useState(false);
-  const [history, setHistory] = useState<DialpadCall[]>([]);
+  const [history, setHistory] = useState<FounderCall[]>([]);
   const [transcript, setTranscript] = useState<TranscriptSegment[]>([]);
   const [transcriptState, setTranscriptState] = useState<"idle" | "loading" | "not_ready" | "ready" | "unavailable">("idle");
   const [summary, setSummary] = useState<string | null>(null);
@@ -186,14 +246,27 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedNotesRef = useRef("");
+  const activeCallIdRef = useRef<string | null>(null);
+  const connectedAtRef = useRef<string | null>(null);
+
+  const persistSession = useCallback(async (callId: string, patch: Record<string, unknown>) => {
+    try {
+      await fetch(`/api/calls/${callId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+    } catch {
+      /* best-effort */
+    }
+  }, []);
 
   const loadStatus = useCallback(async () => {
     setStatusLoading(true);
     try {
-      const res = await fetch("/api/integrations/dialpad/status");
+      const res = await fetch("/api/telephony/status");
       const data = await res.json();
       setStatus(data.status ?? null);
     } catch {
@@ -219,11 +292,12 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
   const loadHistory = useCallback(async (clinicId?: string) => {
     try {
       const url = clinicId
-        ? `/api/integrations/dialpad/calls?clinicId=${encodeURIComponent(clinicId)}`
-        : "/api/integrations/dialpad/calls";
+        ? `/api/calls?clinicId=${encodeURIComponent(clinicId)}&limit=40`
+        : "/api/calls?limit=40";
       const res = await fetch(url);
       const data = await res.json();
-      setHistory(Array.isArray(data.calls) ? data.calls : []);
+      const rows = Array.isArray(data.calls) ? data.calls : [];
+      setHistory(rows.map((row: Record<string, unknown>) => normalizeHistoryCall(row)));
     } catch {
       setHistory([]);
     }
@@ -249,7 +323,6 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
     void loadHistory();
   }, [loadStatus, loadQueue, loadHistory]);
 
-  // Preselect clinic from navigation (Queue / Clinic Detail / Overview).
   useEffect(() => {
     if (!initialClinicId || queue.length === 0) return;
     const match = queue.find((c) => c.id === initialClinicId);
@@ -277,44 +350,15 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
   }, [initialClinicId, queue, loadClinicDetail, loadHistory]);
 
   useEffect(() => {
+    activeCallIdRef.current = activeCall?.id ?? null;
+  }, [activeCall?.id]);
+
+  useEffect(() => {
     if (!activeCall || !ACTIVE_STATUSES.includes(activeCall.status)) return;
     const t = setInterval(() => setTick((v) => v + 1), 1000);
     return () => clearInterval(t);
   }, [activeCall]);
 
-  useEffect(() => {
-    if (!activeCall || !ACTIVE_STATUSES.includes(activeCall.status)) {
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = null;
-      return;
-    }
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/integrations/dialpad/calls/${activeCall.id}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.call) {
-          setActiveCall(data.call);
-          if (typeof data.call.notes === "string" && !notes && data.call.notes) {
-            setNotes(data.call.notes);
-            lastSavedNotesRef.current = data.call.notes;
-          }
-          if (!ACTIVE_STATUSES.includes(data.call.status)) {
-            toast.info(`Call ${TERMINAL_LABELS[data.call.status] ?? data.call.status}.`);
-            void loadHistory(data.call.clinicId);
-          }
-        }
-      } catch {
-        // transient poll failure
-      }
-    }, 2500);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = null;
-    };
-  }, [activeCall?.id, activeCall?.status, loadHistory, notes]);
-
-  // Autosave notes to the active prospect_calls row while the call is live / just ended.
   useEffect(() => {
     if (!activeCall?.id) return;
     if (notes === lastSavedNotesRef.current) return;
@@ -404,102 +448,177 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
     [loadClinicDetail, loadHistory],
   );
 
+  const applyFounderStatus = useCallback(
+    (callId: string, next: FounderCallStatus, extras?: { providerCallId?: string | null; failureMessage?: string }) => {
+      const now = new Date().toISOString();
+      setActiveCall((prev) => {
+        if (!prev || prev.id !== callId) return prev;
+        const patch: FounderCall = { ...prev, status: next };
+        if (next === "ringing" && !prev.ringingAt) patch.ringingAt = now;
+        if (next === "connected") {
+          if (!prev.connectedAt) {
+            patch.connectedAt = now;
+            connectedAtRef.current = now;
+          }
+          patch.status = "connected";
+        }
+        if (next === "completed" || next === "failed" || next === "canceled") {
+          patch.endedAt = now;
+          const connectedAt = prev.connectedAt ?? connectedAtRef.current;
+          if (connectedAt) {
+            const sec = Math.max(0, Math.floor((Date.now() - new Date(connectedAt).getTime()) / 1000));
+            patch.durationSec = sec;
+            patch.durationMs = sec * 1000;
+          }
+          if (next === "failed" && extras?.failureMessage) {
+            patch.failureMessage = extras.failureMessage;
+            patch.failureCode = "TELNYX_CALL_ERROR";
+          }
+        }
+        return patch;
+      });
+
+      const dbStatus = mapUiStatusToDb(next);
+      const sessionPatch: Record<string, unknown> = { status: dbStatus };
+      if (extras?.providerCallId) sessionPatch.providerCallId = extras.providerCallId;
+      if (next === "completed" || next === "failed" || next === "canceled") {
+        sessionPatch.endedAt = now;
+        if (connectedAtRef.current) {
+          sessionPatch.durationSec = Math.max(
+            0,
+            Math.floor((Date.now() - new Date(connectedAtRef.current).getTime()) / 1000),
+          );
+        }
+        if (extras?.failureMessage) {
+          sessionPatch.failureCode = "TELNYX_CALL_ERROR";
+          sessionPatch.failureMessage = extras.failureMessage;
+        }
+      }
+      void persistSession(callId, sessionPatch);
+
+      if (next === "completed" || next === "failed" || next === "canceled") {
+        toast.info(`Call ${TERMINAL_LABELS[next] ?? next}.`);
+      }
+    },
+    [persistSession],
+  );
+
   const endCall = useCallback(async () => {
     if (!activeCall || ending) return;
     setEnding(true);
     try {
-      const res = await fetch(`/api/integrations/dialpad/calls/${activeCall.id}/end`, { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(data.error ?? "Could not end the call.");
-        return;
+      if (activeCall.provider !== "personal_phone" && activeCall.mode !== "personal_phone") {
+        telnyx.hangup();
       }
-      if (data.call) setActiveCall(data.call);
-      toast.success(data.message ?? "Call ended.");
+      const now = new Date().toISOString();
+      const durationSec = connectedAtRef.current
+        ? Math.max(0, Math.floor((Date.now() - new Date(connectedAtRef.current).getTime()) / 1000))
+        : activeCall.connectedAt
+          ? Math.max(0, Math.floor((Date.now() - new Date(activeCall.connectedAt).getTime()) / 1000))
+          : 0;
+      setActiveCall((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "completed",
+              endedAt: now,
+              durationSec,
+              durationMs: durationSec * 1000,
+            }
+          : prev,
+      );
+      await persistSession(activeCall.id, {
+        status: "ended",
+        endedAt: now,
+        durationSec,
+      });
+      toast.success(activeCall.mode === "personal_phone" ? "Coaching session ended." : "Call ended.");
+      void loadHistory(activeCall.clinicId);
     } catch {
-      toast.error("Network error while ending the call.");
+      toast.error("Could not end the call cleanly.");
     } finally {
       setEnding(false);
     }
-  }, [activeCall, ending]);
+  }, [activeCall, ending, loadHistory, persistSession, telnyx]);
 
-  const startCall = useCallback(
-    async (clinic: QueueClinic, overrideNumber?: string) => {
+  const resetCallForm = useCallback(() => {
+    setActiveCall(null);
+    setEnding(false);
+    connectedAtRef.current = null;
+    setTranscript([]);
+    setSummary(null);
+    setTranscriptState("idle");
+    setSaved(false);
+    setOutcome("connected");
+    setNotes("");
+    lastSavedNotesRef.current = "";
+    setNotesSaveState("idle");
+    setDirectoryPermission("pending");
+    setBookingLinkPermission("pending");
+    setDecisionMakerReached(false);
+    setFollowUpRequired(false);
+    setNextAction("");
+    setNextActionAt("");
+    setContactFirstName("");
+    setContactLastName("");
+    setContactEmail("");
+    setTrainingReview("requires_review");
+    setChecklist({});
+    setRecoveryLine(null);
+  }, []);
+
+  const startPersonalPhoneSession = useCallback(
+    async (clinic: QueueClinic) => {
       if (initiating) return;
-      // Unlock browser audio on the same click so mock ringtone can play.
-      try {
-        const AudioCtx =
-          window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        const ctx = new AudioCtx();
-        await ctx.resume();
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        g.gain.value = 0.0001;
-        osc.connect(g);
-        g.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.01);
-        void ctx.close();
-      } catch {
-        /* audio unlock optional */
+      const destination = (clinic.primaryPhone || "").trim();
+      if (!destination) {
+        toast.error("This clinic has no phone number.");
+        return;
       }
+      if (status && status.personalPhoneReady === false) {
+        toast.error("Deepgram is not configured — AI coach needs DEEPGRAM_API_KEY + DEEPGRAM_PROJECT_ID.");
+        return;
+      }
+
       setInitiating(true);
+      setDialPath("personal_phone");
       selectClinic(clinic);
-      setActiveCall(null);
-      setEnding(false);
-      setTranscript([]);
-      setSummary(null);
-      setTranscriptState("idle");
-      setSaved(false);
-      setOutcome("connected");
-      setNotes("");
-      lastSavedNotesRef.current = "";
-      setNotesSaveState("idle");
-      setDirectoryPermission("pending");
-      setBookingLinkPermission("pending");
-      setDecisionMakerReached(false);
-      setFollowUpRequired(false);
-      setNextAction("");
-      setNextActionAt("");
-      setContactFirstName("");
-      setContactLastName("");
-      setContactEmail("");
-      setTrainingReview("requires_review");
-      setChecklist({});
-      setRecoveryLine(null);
-      toast.info("Initiating Dialpad call…");
+      resetCallForm();
+      toast.info("Starting personal-phone coaching session…");
+
       try {
-        const res = await fetch("/api/integrations/dialpad/calls", {
+        const sessionRes = await fetch("/api/telephony/session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             clinicId: clinic.id,
-            source: "founder-led",
-            ...(overrideNumber ? { phoneNumber: overrideNumber } : {}),
+            callEnvironment: "live",
+            mode: "personal_phone",
+            phoneNumber: destination,
+            idempotencyKey: `personal-${clinic.id}-${Date.now()}`,
           }),
         });
-        const data = await res.json();
-        if (!res.ok) {
-          toast.error(data.error ?? "Could not start the Dialpad call.");
+        const sessionData = await sessionRes.json().catch(() => ({}));
+        if (!sessionRes.ok || !sessionData.callSessionId) {
+          toast.error(sessionData.error ?? "Could not create coaching session.");
           return;
         }
-        toast.success(data.message ?? "Dialpad is ringing your active Dialpad device.");
-        if (data.appLaunchUrl && typeof window !== "undefined") {
-          // Fallback helper if ring initiation needs the desktop app foregrounded.
-          window.open(data.appLaunchUrl, "_blank", "noopener,noreferrer");
-        }
+
+        const callId = String(sessionData.callSessionId);
+        const now = new Date().toISOString();
+        connectedAtRef.current = now;
+        activeCallIdRef.current = callId;
         setActiveCall({
-          id: data.callSessionId,
+          id: callId,
           clinicId: clinic.id,
-          status: data.status,
-          startedAt: new Date().toISOString(),
+          status: "connected",
+          startedAt: now,
           ringingAt: null,
-          connectedAt: null,
+          connectedAt: now,
           endedAt: null,
           durationMs: null,
           durationSec: null,
-          externalNumber: data.externalNumber,
+          externalNumber: sessionData.externalNumber ?? destination,
           transcriptStatus: "none",
           recordingAvailable: false,
           failureCode: null,
@@ -507,36 +626,138 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
           outcome: null,
           notes: null,
           recapSummary: null,
-          mode: data.mode,
+          mode: "personal_phone",
+          provider: "personal_phone",
         });
+
+        toast.success("Coach is live — dial the clinic on your phone now. Mute laptop speakers.");
       } catch {
-        toast.error("Network error while starting the Dialpad call.");
+        toast.error("Network error while starting the coaching session.");
       } finally {
         setInitiating(false);
       }
     },
-    [initiating, selectClinic],
+    [initiating, resetCallForm, selectClinic, status],
+  );
+
+  const startCall = useCallback(
+    async (clinic: QueueClinic, overrideNumber?: string) => {
+      if (initiating) return;
+      const destination = (overrideNumber || clinic.primaryPhone || "").trim();
+      if (!destination) {
+        toast.error("This clinic has no phone number.");
+        return;
+      }
+      if (!status?.configured) {
+        toast.error(status?.configErrors?.join(", ") || "Telnyx softphone is not configured.");
+        return;
+      }
+
+      setInitiating(true);
+      setDialPath("browser");
+      selectClinic(clinic);
+      resetCallForm();
+      toast.info("Connecting softphone…");
+
+      try {
+        const sessionRes = await fetch("/api/telephony/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clinicId: clinic.id,
+            callEnvironment: "live",
+            mode: "founder_led",
+            phoneNumber: destination,
+            idempotencyKey: `founder-${clinic.id}-${Date.now()}`,
+          }),
+        });
+        const sessionData = await sessionRes.json().catch(() => ({}));
+        if (!sessionRes.ok || !sessionData.callSessionId) {
+          toast.error(sessionData.error ?? "Could not create call session.");
+          return;
+        }
+
+        const callId = String(sessionData.callSessionId);
+        setActiveCall({
+          id: callId,
+          clinicId: clinic.id,
+          status: "initiating",
+          startedAt: new Date().toISOString(),
+          ringingAt: null,
+          connectedAt: null,
+          endedAt: null,
+          durationMs: null,
+          durationSec: null,
+          externalNumber: sessionData.externalNumber ?? destination,
+          transcriptStatus: "none",
+          recordingAvailable: false,
+          failureCode: null,
+          failureMessage: null,
+          outcome: null,
+          notes: null,
+          recapSummary: null,
+          mode: "founder_led",
+          provider: "telnyx",
+        });
+        activeCallIdRef.current = callId;
+
+        const result = await telnyx.startOutbound(destination, {
+          onStatus: (next, extras) => {
+            if (activeCallIdRef.current !== callId) return;
+            applyFounderStatus(callId, next, extras);
+            if (next === "completed" || next === "failed" || next === "canceled") {
+              void loadHistory(clinic.id);
+            }
+          },
+          onError: (message) => {
+            toast.error(message);
+            applyFounderStatus(callId, "failed", { failureMessage: message });
+          },
+          onRemoteHangup: () => {
+            void loadHistory(clinic.id);
+          },
+        });
+
+        if (!result.ok) {
+          toast.error(result.error);
+          await persistSession(callId, {
+            status: result.error.includes("Microphone") ? "microphone_denied" : "provider_unavailable",
+            failureCode: result.error.includes("Microphone") ? "MICROPHONE_DENIED" : "TELNYX_CONFIGURATION_MISSING",
+            failureMessage: result.error,
+            endedAt: new Date().toISOString(),
+          });
+          setActiveCall((prev) =>
+            prev && prev.id === callId
+              ? {
+                  ...prev,
+                  status: "failed",
+                  endedAt: new Date().toISOString(),
+                  failureMessage: result.error,
+                }
+              : prev,
+          );
+          return;
+        }
+
+        toast.success("Calling from this browser — speak into your mic.");
+      } catch {
+        toast.error("Network error while starting the call.");
+      } finally {
+        setInitiating(false);
+      }
+    },
+    [applyFounderStatus, initiating, loadHistory, persistSession, resetCallForm, selectClinic, status, telnyx],
   );
 
   const loadTranscript = useCallback(async () => {
     if (!activeCall) return;
     setTranscriptState("loading");
     try {
-      const res = await fetch(`/api/integrations/dialpad/calls/${activeCall.id}/transcript`);
-      const data = await res.json();
-      if (res.status === 202) {
-        setTranscriptState("not_ready");
-        return;
-      }
-      if (data.status === "unavailable") {
-        setTranscriptState("unavailable");
-        return;
-      }
-      setTranscript(Array.isArray(data.segments) ? data.segments : []);
-      setSummary(data.summary ?? null);
-      setTranscriptState("ready");
+      setTranscript([]);
+      setSummary(activeCall.recapSummary);
+      setTranscriptState(activeCall.recapSummary ? "ready" : "unavailable");
     } catch {
-      setTranscriptState("not_ready");
+      setTranscriptState("unavailable");
     }
   }, [activeCall]);
 
@@ -559,25 +780,41 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
         }).catch(() => undefined);
       }
 
+      const durationSec =
+        activeCall.durationSec ??
+        (activeCall.connectedAt && activeCall.endedAt
+          ? Math.max(
+              0,
+              Math.floor(
+                (new Date(activeCall.endedAt).getTime() - new Date(activeCall.connectedAt).getTime()) / 1000,
+              ),
+            )
+          : 0);
+
       const res = await fetch(`/api/clinics/${selectedClinic.id}/calls`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           callSessionId: activeCall.id,
           outcome,
-          answered: Boolean(activeCall.connectedAt) || ["permission_granted", "permission_denied", "connected", "interested", "meeting_booked", "not_interested", "do_not_call"].includes(outcome),
+          answered:
+            Boolean(activeCall.connectedAt) ||
+            ["permission_granted", "permission_denied", "connected", "interested", "meeting_booked", "not_interested", "do_not_call"].includes(
+              outcome,
+            ),
           decisionMakerReached,
           notes,
           followUpRequired: followUpRequired || outcome === "call_back_requested" || outcome === "busy" || outcome === "clinic_closed",
           nextAction: nextAction || (followUpRequired ? "Follow up on directory permission" : undefined),
           nextActionAt: nextActionAt || undefined,
-          durationSec: activeCall.durationSec ?? 0,
-          callEnvironment: activeCall.mode === "mock" ? "practice" : "live",
+          durationSec,
+          callEnvironment: "live",
           doNotCall: outcome === "do_not_call",
           directoryPermissionStatus: directoryPermission,
           structuredData: {
-            provider: "dialpad",
+            provider: "telnyx",
             mode: "founder_led",
+            audio: "browser_webrtc",
             directoryPermissionStatus: directoryPermission,
             bookingLinkPermissionStatus: bookingLinkPermission,
             checklist,
@@ -591,15 +828,20 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
         toast.error(data.error ?? "Failed to save the call outcome.");
         return;
       }
-      await fetch(`/api/integrations/dialpad/calls/${activeCall.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trainingReviewStatus: trainingReview,
+      await persistSession(activeCall.id, {
+        status: "saved",
+        notes,
+        structuredData: JSON.stringify({
+          provider: "telnyx",
+          mode: "founder_led",
+          audio: "browser_webrtc",
           directoryPermissionStatus: directoryPermission,
           bookingLinkPermissionStatus: bookingLinkPermission,
+          checklist,
+          trainingEligible: true,
+          trainingReviewStatus: trainingReview,
         }),
-      }).catch(() => undefined);
+      });
       toast.success(outcome === "do_not_call" ? "Marked Do Not Call — removed from queue." : "Call outcome saved.");
       setSaved(true);
       void loadQueue();
@@ -628,6 +870,7 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
     contactEmail,
     loadQueue,
     loadHistory,
+    persistSession,
   ]);
 
   const markClinicStage = useCallback(
@@ -652,65 +895,49 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
         toast.error("Update failed.");
       }
     },
-    [loadQueue, activeCall?.id],
+    [activeCall?.id, loadQueue],
   );
 
   const callActive = Boolean(activeCall && ACTIVE_STATUSES.includes(activeCall.status));
   const callEnded = Boolean(activeCall && !ACTIVE_STATUSES.includes(activeCall.status));
-  const assist = useCallAssist({ callActive });
+  const isPersonalPhone =
+    dialPath === "personal_phone" ||
+    activeCall?.mode === "personal_phone" ||
+    activeCall?.provider === "personal_phone";
+  const assist = useCallAssist({ callActive, autoStartCoach: isPersonalPhone && callActive });
 
   if (statusLoading) {
     return (
       <Card className="p-8 text-center text-sm text-muted-foreground">
-        Checking Dialpad integration status…
+        Checking call coaching status…
       </Card>
     );
   }
 
-  if (!status?.enabled) {
-    return (
-      <Card className="p-8 space-y-2 text-center">
-        <PhoneCall className="size-8 mx-auto text-muted-foreground" />
-        <p className="font-semibold">Dialpad integration is disabled</p>
-        <p className="text-sm text-muted-foreground">
-          Set <code>DIALPAD_INTEGRATION_ENABLED=true</code> and <code>DIALPAD_MODE=mock</code> (or{" "}
-          <code>live</code> with credentials) to enable Founder-Led calling.
-        </p>
-      </Card>
-    );
-  }
-
-  const isMock = status.mode === "mock";
+  const telnyxReady = Boolean(status?.configured);
+  const personalReady = status?.personalPhoneReady !== false;
 
   return (
     <div className="space-y-4">
-      <Card className="p-3 border-sky-200 bg-sky-50/40">
+      <Card className="p-3 border-violet-200 bg-violet-50/40">
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Badge className="bg-sky-700 text-white font-bold">Founder-Led</Badge>
+          <Badge className="bg-violet-700 text-white font-bold">Founder-Led</Badge>
           <Badge variant="outline" className="font-bold uppercase">
-            Dialpad {status.mode}
+            Personal phone + coach
           </Badge>
-          <span className="font-medium text-sky-950">
-            You are speaking. Dialpad handles the phone. No AI voice.
+          <span className="font-medium text-violet-950">
+            Dial on your phone. This tab listens via mic and shows what to say next — mute laptop speakers.
           </span>
-          {isMock && (
-            <Badge className="bg-indigo-600 text-white font-bold">Mock Dialpad — no real calls</Badge>
-          )}
-          {!status.configured && (
-            <Badge variant="outline" className="border-rose-300 text-rose-700">
-              <AlertTriangle className="size-3 mr-1" />
-              {status.configErrors.join(" ")}
+          {telnyxReady && status?.callerNumber && (
+            <Badge variant="outline" className="font-mono text-[10px]">
+              Browser softphone also ready · From {formatPhone(status.callerNumber)}
             </Badge>
           )}
-          <span className="text-muted-foreground">
-            API: {status.apiConnection === "ok" ? "connected" : status.apiConnection}
-          </span>
-          <span className="text-muted-foreground">
-            User: {status.dialpadUserDisplayName ?? (status.dialpadUserConfigured ? "configured" : "not configured")}
-          </span>
-          <span className="text-muted-foreground">
-            Last webhook: {status.lastWebhookAt ? relativeTime(new Date(status.lastWebhookAt)) : "never"}
-          </span>
+          {!personalReady && (
+            <Badge variant="outline" className="text-rose-700 border-rose-300">
+              Deepgram not configured
+            </Badge>
+          )}
           <Button variant="ghost" size="sm" className="h-6 px-2 ml-auto" onClick={() => void loadStatus()}>
             <RefreshCw className="size-3" />
           </Button>
@@ -745,7 +972,7 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
               <div
                 key={clinic.id}
                 className={`border rounded-lg p-2.5 text-xs space-y-1 cursor-pointer transition-colors ${
-                  selectedClinic?.id === clinic.id ? "border-sky-400 bg-sky-50/50" : "hover:bg-accent/40"
+                  selectedClinic?.id === clinic.id ? "border-violet-400 bg-violet-50/50" : "hover:bg-accent/40"
                 }`}
                 onClick={() => selectClinic(clinic)}
               >
@@ -767,15 +994,26 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
                     {clinic.callAttempts} attempt{clinic.callAttempts === 1 ? "" : "s"}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 pt-1" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-1 pt-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
                   <Button
                     size="sm"
-                    className="h-7 text-[11px] bg-sky-700 hover:bg-sky-800 text-white"
+                    className="h-7 text-[11px] bg-violet-700 hover:bg-violet-800 text-white"
                     disabled={initiating || callActive || !clinic.primaryPhone}
-                    onClick={() => void startCall(clinic)}
+                    onClick={() => void startPersonalPhoneSession(clinic)}
                   >
-                    <PhoneCall className="size-3 mr-1" /> Call with Dialpad
+                    <Mic className="size-3 mr-1" /> Coach + my phone
                   </Button>
+                  {telnyxReady && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[11px]"
+                      disabled={initiating || callActive || !clinic.primaryPhone}
+                      onClick={() => void startCall(clinic)}
+                    >
+                      <PhoneCall className="size-3 mr-1" /> Browser
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -823,13 +1061,24 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
                   </p>
                 </div>
                 {!callActive && (
-                  <Button
-                    className="bg-sky-700 hover:bg-sky-800 text-white"
-                    disabled={initiating || !briefing.phone}
-                    onClick={() => void startCall(selectedClinic)}
-                  >
-                    <PhoneCall className="size-4 mr-1" /> Call with Dialpad
-                  </Button>
+                  <div className="flex flex-col gap-1.5 shrink-0">
+                    <Button
+                      className="bg-violet-700 hover:bg-violet-800 text-white"
+                      disabled={initiating || !briefing.phone}
+                      onClick={() => void startPersonalPhoneSession(selectedClinic)}
+                    >
+                      <Mic className="size-4 mr-1" /> Coach + my phone
+                    </Button>
+                    {telnyxReady && (
+                      <Button
+                        variant="outline"
+                        disabled={initiating || !briefing.phone}
+                        onClick={() => void startCall(selectedClinic)}
+                      >
+                        <PhoneCall className="size-4 mr-1" /> Call in browser
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -882,16 +1131,16 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
             </Card>
           )}
 
-          {!activeCall && (
+          {!activeCall && telnyxReady && (
             <Card className="p-4 space-y-2">
               <p className="text-[11px] font-bold uppercase text-muted-foreground">
-                Dial pad{selectedClinic ? ` — logs to ${selectedClinic.name}` : ""}
+                Browser dial pad{selectedClinic ? ` — logs to ${selectedClinic.name}` : ""}
               </p>
               <DialKeypad
                 disabled={initiating || callActive || !selectedClinic}
                 hint={
                   selectedClinic
-                    ? "Rings your Dialpad device, then dials this number. Great for test dry-runs."
+                    ? "Optional Telnyx path — dials from this browser. For today, prefer Coach + my phone."
                     : "Select a clinic on the left first so the call is logged to the right record."
                 }
                 onDial={(number) => {
@@ -905,6 +1154,16 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
             </Card>
           )}
 
+          {!activeCall && !telnyxReady && (
+            <Card className="p-4 text-xs text-muted-foreground">
+              Telnyx browser softphone is not configured — that&apos;s fine for today. Use{" "}
+              <strong className="text-foreground">Coach + my phone</strong> on a clinic to start.
+              {status?.configErrors?.length ? (
+                <span className="block mt-1 text-[11px]">Softphone gaps: {status.configErrors.join(" · ")}</span>
+              ) : null}
+            </Card>
+          )}
+
           {activeCall && (
             <Card className="p-4 space-y-3">
               <CallHud
@@ -913,38 +1172,51 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
                 number={activeCall.externalNumber}
                 status={activeCall.status}
                 durationLabel={callDurationLabel}
-                isMock={isMock}
+                isMock={false}
+                isPersonalPhone={isPersonalPhone}
                 callActive={callActive}
                 assist={assist}
                 ending={ending}
                 onEndCall={() => void endCall()}
               />
 
-              {callActive && (activeCall.status === "initiating" || activeCall.status === "ringing") && (
-                <div className="text-xs text-muted-foreground bg-accent/40 rounded p-2.5">
-                  {isMock
-                    ? "Mock dry-run: listen for the browser ringtone, then wait for Connected (or hit End call). No real phone rings."
-                    : "Dialpad is ringing your device. Answer there and speak in Dialpad — this dashboard is your cue card, not the phone speaker."}
+              {callActive && isPersonalPhone && (
+                <div className="text-xs text-violet-950 bg-violet-50 border border-violet-200 rounded p-2.5 space-y-1">
+                  <p className="font-semibold">Dial now: {formatPhone(activeCall.externalNumber)}</p>
+                  <p>
+                    Speakerphone near this laptop mic · mute laptop speakers · say the cue on screen ·
+                    capture email + permission after they engage.
+                  </p>
                 </div>
               )}
 
-              {!isMock && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-950">
-                  <strong>Recording required:</strong> Confirm Dialpad Call Recording + AI Transcription
-                  are ON for your user before clinic calls. Hang up in Dialpad (or End call here) — we
-                  queue enrichment so the recording URL, transcript segments, and call session save to
-                  Supabase automatically. After hangup, complete the post-call panel (permission,
-                  outcome, follow-up).
+              {callActive && !isPersonalPhone && ["initiating", "dialing", "ringing"].includes(activeCall.status) && (
+                <div className="text-xs text-muted-foreground bg-accent/40 rounded p-2.5">
+                  Ringing through this browser. Keep this tab focused, unmute speakers, and speak into your mic when connected.
                 </div>
               )}
+
+              <div className={`rounded-lg border px-3 py-2.5 text-xs ${isPersonalPhone ? "border-violet-200 bg-violet-50 text-violet-950" : "border-sky-200 bg-sky-50 text-sky-950"}`}>
+                {isPersonalPhone ? (
+                  <>
+                    <strong>Personal phone:</strong> You are the voice. AI coaches silently on screen.
+                    After hangup, complete permission, outcome, and follow-up below.
+                  </>
+                ) : (
+                  <>
+                    <strong>In-browser audio:</strong> Allow microphone access once. Clinic audio plays on your
+                    speakers. After hangup, complete the post-call panel (permission, outcome, follow-up).
+                  </>
+                )}
+              </div>
 
               <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
-                  <Mic className="size-3" /> Recording:{" "}
-                  {activeCall.recordingAvailable ? "available" : "unavailable until Dialpad returns it"}
+                  <Mic className="size-3" /> Session:{" "}
+                  {activeCall.recordingAvailable ? "recording available" : "logged in CRM (notes + outcome)"}
                 </span>
                 <span className="flex items-center gap-1">
-                  <FileText className="size-3" /> Transcript: {activeCall.transcriptStatus ?? "none"}
+                  <FileText className="size-3" /> Coach: browser mic → Deepgram
                 </span>
                 {activeCall.failureMessage && (
                   <span className="text-rose-600 flex items-center gap-1">
@@ -1022,14 +1294,6 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
                 </>
               )}
 
-              {callActive && (
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" className="h-8 text-xs" disabled>
-                    <PhoneOff className="size-3.5 mr-1" /> Hang up in the Dialpad app
-                  </Button>
-                </div>
-              )}
-
               {callEnded && (
                 <div className="space-y-3 border-t pt-3">
                   <div className="flex items-center justify-between">
@@ -1043,7 +1307,7 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
 
                   {activeCall.recapSummary && (
                     <div className="text-xs bg-accent/40 rounded p-2.5">
-                      <span className="font-semibold">Dialpad summary: </span>
+                      <span className="font-semibold">Call summary: </span>
                       {activeCall.recapSummary}
                     </div>
                   )}
@@ -1056,7 +1320,7 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
                       </Button>
                       {transcriptState === "not_ready" && (
                         <span className="text-xs text-amber-700">
-                          Still processing at Dialpad — unavailable until returned.
+                          Artifacts still processing — try again shortly.
                         </span>
                       )}
                       {transcriptState === "unavailable" && (
@@ -1250,8 +1514,8 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
                               notes,
                               doNotCall: true,
                               followUpRequired: false,
-                              callEnvironment: activeCall.mode === "mock" ? "practice" : "live",
-                              structuredData: { provider: "dialpad", mode: "founder_led", checklist },
+                              callEnvironment: "live",
+                              structuredData: { provider: "telnyx", mode: "founder_led", audio: "browser_webrtc", checklist },
                             }),
                           });
                           if (!res.ok) {
@@ -1298,7 +1562,6 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
             </Card>
           )}
 
-          <DialpadCti />
 
           <Card className="p-3 space-y-2">
             <div className="flex items-center justify-between">
@@ -1319,7 +1582,7 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
             </div>
             <div className="space-y-1.5 max-h-72 overflow-y-auto">
               {history.length === 0 && (
-                <p className="text-xs text-muted-foreground p-2">No Dialpad calls yet.</p>
+                <p className="text-xs text-muted-foreground p-2">No founder calls yet.</p>
               )}
               {history.map((call) => (
                 <div key={call.id} className="border rounded p-2 text-xs flex items-center justify-between gap-2">
@@ -1333,7 +1596,7 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
                       {call.durationSec ? ` · ${call.durationSec}s` : ""}
                       {call.transcriptStatus === "stored" ? " · transcript" : " · transcript pending/unavailable"}
                       {call.recordingAvailable ? " · recording" : ""}
-                      {call.mode === "mock" ? " · mock" : ""}
+                      {call.provider === "telnyx" ? " · telnyx" : call.mode === "mock" ? " · mock" : ""}
                     </p>
                   </div>
                   <Badge className={`border shrink-0 ${statusTone(call.status)}`}>
