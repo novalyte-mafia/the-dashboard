@@ -147,7 +147,7 @@ export function CampaignDetailView({ params }: { params?: Record<string, unknown
         const res = await fetch(`/api/campaigns/pages/${p.id}/actions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "publish", index: p.host === "organic" }),
+          body: JSON.stringify({ action: "publish", index: true }),
         });
         if (res.ok) ok += 1;
       } catch {

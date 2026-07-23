@@ -387,7 +387,7 @@ export async function applyPageAction(
 
     const indexingPolicy =
       page.host === "ads"
-        ? "noindex_follow"
+        ? "index_follow"
         : options?.index
           ? "index_follow"
           : page.indexing_policy === "index_follow"
