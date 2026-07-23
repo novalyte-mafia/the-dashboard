@@ -28,9 +28,32 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const outcome = String(body.outcome ?? "no_answer");
   const answered = Boolean(
     body.answered ??
-      ["connected", "permission_granted", "permission_denied", "interested", "meeting_booked", "not_interested", "call_back_requested", "information_requested", "already_has_provider", "at_capacity", "do_not_call"].includes(outcome),
+      [
+        "connected",
+        "permission_granted",
+        "permission_denied",
+        "interested",
+        "meeting_booked",
+        "not_interested",
+        "call_back_requested",
+        "information_requested",
+        "information_provided",
+        "email_requested",
+        "follow_up_required",
+        "gatekeeper",
+        "decision_maker_unavailable",
+        "decision_maker_reached",
+        "already_has_provider",
+        "at_capacity",
+        "do_not_call",
+      ].includes(outcome),
   );
-  const decisionMakerReached = Boolean(body.decisionMakerReached ?? false);
+  const decisionMakerReached = Boolean(
+    body.decisionMakerReached ??
+      ["decision_maker_reached", "interested", "meeting_booked", "permission_granted", "email_requested", "information_provided"].includes(
+        outcome,
+      ),
+  );
   const interestLevel = String(
     body.interestLevel ??
       (outcome === "permission_granted" || outcome === "interested" || outcome === "meeting_booked"
@@ -50,9 +73,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Call session does not belong to this clinic" }, { status: 409 });
   }
   const callEnvironment = body.callEnvironment === "practice" ? "practice" : "live";
+  const providerFromBody = typeof body.provider === "string" ? body.provider.trim() : "";
+  const provider =
+    callEnvironment === "practice"
+      ? "vapi_practice"
+      : providerFromBody || "telnyx";
+  const externalNumber =
+    typeof body.externalNumber === "string" && body.externalNumber.trim()
+      ? body.externalNumber.trim()
+      : null;
   const transcriptPayload = body.structuredData && typeof body.structuredData === "object"
     ? JSON.stringify((body.structuredData as { transcript?: unknown }).transcript ?? [])
     : undefined;
+
+  const structuredPayload = {
+    ...(typeof body.structuredData === "object" && body.structuredData ? (body.structuredData as Record<string, unknown>) : {}),
+    callEnvironment,
+    isPractice: callEnvironment === "practice",
+    provider,
+  };
 
   const call = existingCall
     ? await db.callSession.update({
@@ -72,12 +111,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         invalidNumber,
         status: "saved",
         callEnvironment,
+        ...(externalNumber ? { externalNumber } : {}),
         ...(transcriptPayload ? { transcript: transcriptPayload } : {}),
-        structuredData: JSON.stringify({
-          ...(typeof body.structuredData === "object" && body.structuredData ? body.structuredData : {}),
-          callEnvironment,
-          isPractice: callEnvironment === "practice",
-        }),
+        structuredData: JSON.stringify(structuredPayload),
       },
     })
     : await db.callSession.create({
@@ -88,10 +124,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       startedAt: body.startedAt ? new Date(body.startedAt as string) : new Date(),
       endedAt: body.endedAt ? new Date(body.endedAt as string) : new Date(),
       answered,
+      decisionMakerReached,
       outcome,
+      interestLevel,
       notes: (body.notes as string) ?? null,
+      nextAction: (body.nextAction as string) ?? null,
+      nextActionAt: body.nextActionAt ? new Date(body.nextActionAt as string) : null,
+      followUpRequired,
+      doNotCall,
+      invalidNumber,
+      durationSec: Number(body.durationSec ?? 0),
       callEnvironment,
-      provider: callEnvironment === "practice" ? "vapi_practice" : "telnyx",
+      provider,
+      externalNumber,
       transcript: transcriptPayload ?? "[]",
       aiTopicTags: JSON.stringify({
         direction: String(body.direction ?? "outbound"),
@@ -101,12 +146,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         followUpRequired,
         invalidNumber,
         durationSec: Number(body.durationSec ?? 0),
+        source: provider,
       }),
       status: "saved",
-      structuredData: JSON.stringify({
-        ...(typeof body.structuredData === "object" && body.structuredData ? body.structuredData : {}),
-        callEnvironment,
-        isPractice: callEnvironment === "practice",
+      structuredData: JSON.stringify(structuredPayload),
+      metadata: JSON.stringify({
+        phoneNumber: externalNumber,
+        source: provider,
       }),
     },
   });

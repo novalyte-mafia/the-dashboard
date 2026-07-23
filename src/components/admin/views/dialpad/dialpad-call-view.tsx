@@ -36,6 +36,7 @@ import {
 } from "@/lib/calls/founder-led-script";
 import { CallHud, CopilotPanel, DialKeypad, useCallAssist } from "./founder-call-hud";
 import { useTelnyxFounderCall, type FounderCallStatus } from "@/hooks/use-telnyx-founder-call";
+import { LogCallDialog } from "@/components/admin/log-call-dialog";
 
 /**
  * Founder-Led Call Mode.
@@ -245,6 +246,7 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
   const [trainingReview, setTrainingReview] = useState("requires_review");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [logExternalOpen, setLogExternalOpen] = useState(false);
 
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedNotesRef = useRef("");
@@ -253,13 +255,16 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
 
   const persistSession = useCallback(async (callId: string, patch: Record<string, unknown>) => {
     try {
-      await fetch(`/api/calls/${callId}`, {
+      const res = await fetch(`/api/calls/${callId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-    } catch {
-      /* best-effort */
+      if (!res.ok) {
+        console.error("Failed to persist call session", callId, await res.text().catch(() => ""));
+      }
+    } catch (error) {
+      console.error("Failed to persist call session", callId, error);
     }
   }, []);
 
@@ -919,18 +924,38 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
 
   return (
     <div className="space-y-4">
+      {!telnyxReady && (
+        <Card className="p-3 border-rose-300 bg-rose-50">
+          <div className="flex flex-col gap-1 text-sm text-rose-950">
+            <p className="font-bold flex items-center gap-2">
+              <AlertTriangle className="size-4" /> Browser calling is offline
+            </p>
+            <p className="text-xs leading-relaxed">
+              Telnyx credentials are missing or empty on this environment
+              {status?.configErrors?.length ? ` (${status.configErrors.join(", ")})` : ""}.
+              Set non-empty <code className="font-mono">TELNYX_API_KEY</code>,{" "}
+              <code className="font-mono">TELNYX_CREDENTIAL_ID</code>, and{" "}
+              <code className="font-mono">TELNYX_PHONE_NUMBER</code> in Vercel Production, then redeploy.
+              Until then, dial on your phone and use <strong>Log external call</strong> so nothing is lost.
+            </p>
+          </div>
+        </Card>
+      )}
+
       <Card className="p-3 border-violet-200 bg-violet-50/40">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Badge className="bg-violet-700 text-white font-bold">Founder-Led</Badge>
           <Badge variant="outline" className="font-bold uppercase">
-            Personal phone + coach
+            {telnyxReady ? "Telnyx browser softphone" : "External log + coach"}
           </Badge>
           <span className="font-medium text-violet-950">
-            Dial on your phone. This tab listens via mic and shows what to say next — mute laptop speakers.
+            {telnyxReady
+              ? "Call clinics from this browser (mic + speakers). Outcomes save automatically after hangup."
+              : "Softphone needs Telnyx keys. Log every cell-phone call below so CRM history stays complete."}
           </span>
           {telnyxReady && status?.callerNumber && (
             <Badge variant="outline" className="font-mono text-[10px]">
-              Browser softphone also ready · From {formatPhone(status.callerNumber)}
+              From {formatPhone(status.callerNumber)}
             </Badge>
           )}
           {!personalReady && (
@@ -938,11 +963,30 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
               Deepgram not configured
             </Badge>
           )}
-          <Button variant="ghost" size="sm" className="h-6 px-2 ml-auto" onClick={() => void loadStatus()}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 ml-auto font-semibold"
+            onClick={() => setLogExternalOpen(true)}
+          >
+            <PhoneCall className="size-3.5 mr-1" /> Log external call
+          </Button>
+          <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => void loadStatus()}>
             <RefreshCw className="size-3" />
           </Button>
         </div>
       </Card>
+
+      <LogCallDialog
+        open={logExternalOpen}
+        onOpenChange={setLogExternalOpen}
+        presetClinicId={selectedClinic?.id}
+        presetPhone={selectedClinic?.primaryPhone}
+        onLogged={(clinicId) => {
+          void loadHistory(clinicId);
+          void loadQueue();
+        }}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <Card className="p-3 space-y-2 lg:col-span-3">
@@ -995,25 +1039,37 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
                   </span>
                 </div>
                 <div className="flex items-center gap-1 pt-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
-                  <Button
-                    size="sm"
-                    className="h-7 text-[11px] bg-violet-700 hover:bg-violet-800 text-white"
-                    disabled={initiating || callActive || !clinic.primaryPhone}
-                    onClick={() => void startPersonalPhoneSession(clinic)}
-                  >
-                    <Mic className="size-3 mr-1" /> Coach + my phone
-                  </Button>
-                  {telnyxReady && (
+                  {telnyxReady ? (
                     <Button
                       size="sm"
-                      variant="outline"
-                      className="h-7 text-[11px]"
+                      className="h-7 text-[11px] bg-violet-700 hover:bg-violet-800 text-white"
                       disabled={initiating || callActive || !clinic.primaryPhone}
                       onClick={() => void startCall(clinic)}
                     >
-                      <PhoneCall className="size-3 mr-1" /> Browser
+                      <PhoneCall className="size-3 mr-1" /> Call in browser
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      className="h-7 text-[11px] bg-violet-700 hover:bg-violet-800 text-white"
+                      disabled={callActive}
+                      onClick={() => {
+                        selectClinic(clinic);
+                        setLogExternalOpen(true);
+                      }}
+                    >
+                      <PhoneCall className="size-3 mr-1" /> Log cell call
                     </Button>
                   )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px]"
+                    disabled={initiating || callActive || !clinic.primaryPhone || !personalReady}
+                    onClick={() => void startPersonalPhoneSession(clinic)}
+                  >
+                    <Mic className="size-3 mr-1" /> Coach
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1062,22 +1118,29 @@ export function DialpadCallView({ initialClinicId = null }: { initialClinicId?: 
                 </div>
                 {!callActive && (
                   <div className="flex flex-col gap-1.5 shrink-0">
-                    <Button
-                      className="bg-violet-700 hover:bg-violet-800 text-white"
-                      disabled={initiating || !briefing.phone}
-                      onClick={() => void startPersonalPhoneSession(selectedClinic)}
-                    >
-                      <Mic className="size-4 mr-1" /> Coach + my phone
-                    </Button>
-                    {telnyxReady && (
+                    {telnyxReady ? (
                       <Button
-                        variant="outline"
+                        className="bg-violet-700 hover:bg-violet-800 text-white"
                         disabled={initiating || !briefing.phone}
                         onClick={() => void startCall(selectedClinic)}
                       >
                         <PhoneCall className="size-4 mr-1" /> Call in browser
                       </Button>
+                    ) : (
+                      <Button
+                        className="bg-violet-700 hover:bg-violet-800 text-white"
+                        onClick={() => setLogExternalOpen(true)}
+                      >
+                        <PhoneCall className="size-4 mr-1" /> Log cell call
+                      </Button>
                     )}
+                    <Button
+                      variant="outline"
+                      disabled={initiating || !briefing.phone || !personalReady}
+                      onClick={() => void startPersonalPhoneSession(selectedClinic)}
+                    >
+                      <Mic className="size-4 mr-1" /> Coach + my phone
+                    </Button>
                   </div>
                 )}
               </div>

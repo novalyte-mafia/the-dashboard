@@ -64,3 +64,5 @@ supabase/.temp/
 scripts/reports/*.json
 scripts/reports/*.csv
 scripts/reports/*.log
+.env.production.local
+.env.vercel.prod
