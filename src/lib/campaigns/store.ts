@@ -387,7 +387,11 @@ export async function applyPageAction(
 
     const indexingPolicy =
       page.host === "ads"
-        ? "index_follow"
+        ? options?.index
+          ? "index_follow"
+          : page.indexing_policy === "index_follow"
+            ? "index_follow"
+            : "noindex_follow"
         : options?.index
           ? "index_follow"
           : page.indexing_policy === "index_follow"
@@ -576,7 +580,10 @@ export async function generateCampaignPages(
 
     if (paid) {
       slug = buildAdsSlug(vertical.slug, geo.slug, target.intent);
-      path = adsPath(slug);
+      // Hierarchical path: /ads/trt/phoenix-az (slug stores trt/phoenix-az)
+      path = adsPath(vertical.slug, [geo.slug, target.intent].filter(Boolean).join("-"));
+      stateSlug = await resolveStateSlug(geo);
+      citySlug = geo.kind === "city" ? geo.slug : geo.slug;
     } else {
       stateSlug = await resolveStateSlug(geo);
       citySlug = geo.kind === "city" ? geo.slug : geo.slug;

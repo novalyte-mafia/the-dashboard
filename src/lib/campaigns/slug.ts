@@ -6,33 +6,61 @@ export function organicPath(service: string, state: string, city: string): strin
   return `/find/${parts.join("/")}`;
 }
 
-/** Build paid ads path: /ads/{slug} */
-export function adsPath(slug: string): string {
-  const normalized = slug
+/** Build paid ads path.
+ * Preferred hierarchical: /ads/{treatment}/{location}  e.g. /ads/trt/phoenix-az
+ * Legacy flat slug still supported: /ads/{slug}
+ */
+export function adsPath(slugOrTreatment: string, location?: string | null): string {
+  const treatment = slugOrTreatment
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-]/g, "");
-  return `/ads/${normalized}`;
+  if (location) {
+    const loc = location
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+    return `/ads/${treatment}/${loc}`;
+  }
+  return `/ads/${treatment}`;
 }
 
-/** Extract the slug segment from a page path (last segment for organic, ads segment for ads). */
+/** Extract the ads slug: hierarchical `trt/phoenix-az` or legacy single segment. */
 export function pathToSlug(path: string, host: "organic" | "ads"): string {
   const segments = path.split("/").filter(Boolean);
-  if (host === "ads") return segments[1] ?? segments[0] ?? "";
+  if (host === "ads") {
+    // /ads/trt/phoenix-az → trt/phoenix-az ; /ads/glp-1-la → glp-1-la
+    return segments.slice(1).join("/") || segments[0] || "";
+  }
   return segments[segments.length - 1] ?? "";
 }
 
-/** Build a unique ads slug from vertical + geo + optional intent. */
+/** Build hierarchical ads identity from vertical + geo (+ optional intent segment). */
 export function buildAdsSlug(
   verticalSlug: string,
   geoSlug: string,
   intent?: string | null,
 ): string {
-  const parts = [verticalSlug, geoSlug, intent].filter(Boolean) as string[];
-  return parts
+  const treatment = verticalSlug
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+  const location = [geoSlug, intent]
+    .filter(Boolean)
     .join("-")
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-]/g, "");
+  return `${treatment}/${location}`;
+}
+
+/** Public ads.novalyte.io URL (strips internal /ads prefix for hierarchical paths). */
+export function adsPublicPath(internalPath: string): string {
+  const normalized = internalPath.startsWith("/") ? internalPath : `/${internalPath}`;
+  if (normalized === "/ads" || normalized === "/ads/") return "/";
+  if (normalized.startsWith("/ads/")) return normalized.slice(4) || "/";
+  return normalized;
 }
