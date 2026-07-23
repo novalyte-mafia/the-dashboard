@@ -117,7 +117,34 @@ export async function PATCH(request: NextRequest) {
         updated_at: now,
       })
       .eq("id", parsed.data.submissionId);
-    return NextResponse.json({ ok: true, queued: true });
+
+    // Best-effort immediate flush via marketing-site cron (falls back to 5-min schedule).
+    const marketingSite = (process.env.MARKETING_SITE_URL || "https://novalyte.io").replace(/\/$/, "");
+    const cronSecret =
+      process.env.FORM_NOTIFICATION_CRON_SECRET?.trim() || process.env.CRON_SECRET?.trim() || "";
+    let flushed = false;
+    let flushError: string | null = null;
+    if (cronSecret) {
+      try {
+        const flushRes = await fetch(`${marketingSite}/api/cron/form-notifications`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${cronSecret}` },
+          cache: "no-store",
+          signal: AbortSignal.timeout(20000),
+        });
+        flushed = flushRes.ok;
+        if (!flushRes.ok) flushError = `Cron responded ${flushRes.status}`;
+      } catch (error) {
+        flushError = error instanceof Error ? error.message : "Cron flush failed";
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      queued: true,
+      flushed,
+      flushError,
+    });
   }
 
   const update =

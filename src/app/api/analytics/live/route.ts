@@ -81,17 +81,24 @@ const EVENT_LABELS: Record<string, string> = {
   professional_onboarding_submitted: "Professional onboarding",
   vendor_onboarding_submitted: "Vendor onboarding",
   newsletter_subscribed: "Newsletter signup",
+  newsletter_signup: "Newsletter signup",
   marketplace_product_viewed: "Viewed marketplace product",
   marketplace_add_to_cart: "Added to cart",
   marketplace_checkout_started: "Started checkout",
   marketplace_quote_requested: "Requested quote",
   consultation_requested: "Requested consultation",
   investor_access_requested: "Investor access request",
+  investor_access_request: "Investor access request",
   investor_meeting_requested: "Investor meeting request",
+  investor_meeting_request: "Investor meeting request",
   primary_cta_clicked: "Clicked primary CTA",
   directory_search: "Directory search",
+  directory_search_submitted: "Directory search",
   booking_clicked: "Booking click",
+  booking_link_clicked: "Booking click",
+  assessment_submitted: "Completed assessment",
   clinic_profile_viewed: "Viewed clinic profile",
+  campaign_lead: "Campaign lead",
 };
 
 function labelForEvent(event: string): string {
@@ -135,6 +142,8 @@ type LiveEvent = {
   city: string | null;
   region: string | null;
   country: string | null;
+  sessionId?: string | null;
+  replayUrl?: string | null;
   formType?: string | null;
   contactName?: string | null;
   organization?: string | null;
@@ -148,6 +157,9 @@ export async function GET(request: NextRequest) {
   const apiKey = process.env.POSTHOG_PERSONAL_API_KEY?.trim();
   const projectId = process.env.POSTHOG_PROJECT_ID?.trim();
   const host = (process.env.POSTHOG_API_HOST || "https://us.posthog.com").replace(/\/$/, "");
+  const uiHost = (process.env.POSTHOG_UI_HOST || process.env.NEXT_PUBLIC_POSTHOG_UI_HOST || host)
+    .replace(/\/$/, "")
+    .replace("i.posthog.com", "posthog.com");
   const environment = request.nextUrl.searchParams.get("environment") ?? "production";
 
   let activityEvents: LiveEvent[] = [];
@@ -219,6 +231,10 @@ export async function GET(request: NextRequest) {
               city: safeString(properties.$geoip_city_name, 80),
               region: safeString(properties.$geoip_subdivision_1_name, 80),
               country: safeString(properties.$geoip_country_name, 80),
+              sessionId: safeString(properties.$session_id, 120),
+              replayUrl: safeString(properties.$session_id, 120)
+                ? `${uiHost}/project/${projectId}/replay/${encodeURIComponent(String(properties.$session_id))}?t=0`
+                : null,
             };
           });
       }

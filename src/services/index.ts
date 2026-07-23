@@ -653,7 +653,31 @@ export const settingsService = {
     return fetch("/api/settings").then((r) => r.json());
   },
   listAuditEvents(): Promise<{ events: AuditEvent[] }> {
-    return mockAsync({ events: mocks.mockAuditEvents });
+    if (appConfig.mockMode) return mockAsync({ events: mocks.mockAuditEvents });
+    return fetch("/api/activity?limit=100")
+      .then((r) => r.json())
+      .then((payload) => {
+        const rows = Array.isArray(payload.activities) ? payload.activities : [];
+        const events: AuditEvent[] = rows.map((row: Record<string, unknown>) => {
+          const admin = (row.admin as { firstName?: string; lastName?: string } | null) ?? null;
+          const actor =
+            [admin?.firstName, admin?.lastName].filter(Boolean).join(" ").trim() ||
+            (typeof row.adminId === "string" ? row.adminId : "System");
+          return {
+            id: String(row.id),
+            actorName: actor,
+            action: String(row.summary || row.action || "activity"),
+            resourceType: String(row.entityType || "unknown"),
+            resourceId: row.entityId ? String(row.entityId) : undefined,
+            timestamp: String(row.timestamp || new Date().toISOString()),
+            metadata:
+              row.metadata && typeof row.metadata === "object"
+                ? (row.metadata as Record<string, unknown>)
+                : undefined,
+          };
+        });
+        return { events };
+      });
   },
 };
 

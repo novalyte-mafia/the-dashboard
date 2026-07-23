@@ -25,7 +25,7 @@ export const PIPELINE_STAGES: StageConfig[] = [
   { id: "decision_maker_reached", label: "Decision-Maker Reached", order: 6, category: "engaged", color: "teal", active: true, nextStages: ["follow_up_required", "meeting_booked", "interested", "not_interested"] },
   { id: "follow_up_required", label: "Follow-Up Required", order: 7, category: "engaged", color: "amber", active: true, nextStages: ["connected", "meeting_booked", "interested", "not_interested"], defaultFollowUpDays: 3 },
   { id: "meeting_booked", label: "Meeting Booked", order: 8, category: "engaged", color: "teal", active: true, nextStages: ["interested", "not_interested", "follow_up_required"] },
-  { id: "interested", label: "Interested", order: 9, category: "engaged", color: "teal", active: true, nextStages: ["pilot_proposed", "proposal_sent", "not_interested"] },
+  { id: "interested", label: "Interested", order: 9, category: "engaged", color: "teal", active: true, nextStages: ["directory_approved", "pilot_proposed", "proposal_sent", "not_interested"] },
   { id: "directory_approved", label: "Directory Approved", order: 10, category: "directory", color: "violet", active: true, nextStages: ["pilot_proposed", "proposal_sent"] },
   { id: "patient_demand_presented", label: "Patient Demand Presented", order: 11, category: "commercial", color: "teal", active: true, nextStages: ["pilot_proposed", "proposal_sent"] },
   { id: "pilot_proposed", label: "Pilot Proposed", order: 12, category: "commercial", color: "teal", active: true, nextStages: ["pilot_active", "proposal_sent", "not_interested"] },

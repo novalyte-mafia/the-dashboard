@@ -74,13 +74,19 @@ function statusTone(status: string) {
   return "border-rose-200 bg-rose-50 text-rose-800";
 }
 
-export function FormSubmissionsView() {
+export function FormSubmissionsView({ params }: { params?: Record<string, unknown> }) {
+  const initialSubmissionId =
+    typeof params?.submissionId === "string"
+      ? params.submissionId
+      : typeof params?.submission === "string"
+        ? params.submission
+        : null;
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Submission | null>(null);
   const [filters, setFilters] = useState({
-    search: "",
+    search: initialSubmissionId ?? "",
     formType: "",
     notificationStatus: "",
     source: "",
@@ -97,18 +103,28 @@ export function FormSubmissionsView() {
     for (const [key, value] of Object.entries(filters)) {
       if (value) params.set(key, value);
     }
+    if (initialSubmissionId && !filters.search) {
+      params.set("search", initialSubmissionId);
+    }
     try {
       const response = await fetch(`/api/form-submissions?${params}`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Unable to load submissions.");
-      setSubmissions(payload.submissions ?? []);
+      const rows: Submission[] = payload.submissions ?? [];
+      setSubmissions(rows);
       setCount(payload.count ?? 0);
+      if (initialSubmissionId) {
+        const match = rows.find(
+          (row) => row.id === initialSubmissionId || row.submission_id === initialSubmissionId,
+        );
+        if (match) setSelected(match);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to load submissions.");
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, initialSubmissionId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 200);
@@ -134,8 +150,19 @@ export function FormSubmissionsView() {
 
   async function retry(item: Submission) {
     try {
-      await update({ action: "retry", submissionId: item.id });
-      toast.success("Failed notification channels queued for retry.");
+      const response = await fetch("/api/form-submissions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry", submissionId: item.id }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Retry failed.");
+      await load();
+      toast.success(
+        payload.flushed
+          ? "Notifications retried and flushed."
+          : "Notifications re-queued. Cron will flush within a few minutes.",
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Retry failed.");
     }

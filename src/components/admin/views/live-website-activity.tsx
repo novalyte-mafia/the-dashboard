@@ -35,6 +35,8 @@ type ActivityEvent = {
   city: string | null;
   region: string | null;
   country: string | null;
+  sessionId?: string | null;
+  replayUrl?: string | null;
   formType?: string | null;
   contactName?: string | null;
   organization?: string | null;
@@ -219,9 +221,19 @@ export function LiveWebsiteActivityView() {
                     </p>
                   </div>
 
-                  <div className="text-xs text-muted-foreground md:text-right">
+                  <div className="text-xs text-muted-foreground md:text-right space-y-1">
                     <p>{event.distinctId}</p>
                     <p>{new Date(event.timestamp).toLocaleString()}</p>
+                    {event.replayUrl && (
+                      <a
+                        href={event.replayUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-sky-700 hover:underline"
+                      >
+                        <ExternalLink className="size-3" /> Session replay
+                      </a>
+                    )}
                   </div>
                 </div>
               );

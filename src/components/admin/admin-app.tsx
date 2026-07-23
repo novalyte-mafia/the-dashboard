@@ -234,13 +234,37 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
 };
 
 export function AdminApp({ admin }: { admin: AdminUser }) {
-  const [nav, setNav] = useState<NavState>({ view: "overview", clinicId: null });
+  const [nav, setNav] = useState<NavState>(() => {
+    if (typeof window === "undefined") return { view: "overview", clinicId: null };
+    const params = new URLSearchParams(window.location.search);
+    const view = params.get("view")?.trim();
+    const clinicId = params.get("clinicId")?.trim() || null;
+    const submission = params.get("submission")?.trim() || params.get("submissionId")?.trim();
+    const nextParams: Record<string, unknown> = {};
+    if (submission) nextParams.submissionId = submission;
+    return {
+      view: view || "overview",
+      clinicId,
+      params: Object.keys(nextParams).length ? nextParams : undefined,
+    };
+  });
   const [refreshKey, setRefreshKey] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   const navigate = useCallback((view: ViewId, clinicId: string | null = null, params?: Record<string, unknown>) => {
     setNav({ view, clinicId, params });
-    if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", view);
+      if (clinicId) url.searchParams.set("clinicId", clinicId);
+      else url.searchParams.delete("clinicId");
+      const submissionId = typeof params?.submissionId === "string" ? params.submissionId : null;
+      if (submissionId) url.searchParams.set("submission", submissionId);
+      else url.searchParams.delete("submission");
+      url.searchParams.delete("submissionId");
+      window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
+      window.scrollTo({ top: 0 });
+    }
   }, []);
 
   const openClinic = useCallback((clinicId: string) => {

@@ -49,18 +49,46 @@ export function VerificationQueueView() {
     }).finally(() => setLoading(false));
   }, [refreshKey]);
 
-  function approve(p: DirectoryProfile) {
-    toast.success(`Approved ${p.clinicName} — listing published`);
-    setPending((prev) => prev.filter((x) => x.id !== p.id));
-    refresh();
+  async function approve(p: DirectoryProfile) {
+    try {
+      const complete = Number(p.profileCompleteness ?? 0) >= 100;
+      const inReviewQueue = ["identity_review", "claim_requested"].includes(p.listingStatus);
+      await directoryService.update(p.id, {
+        verificationStatus: "verified",
+        // Never publish here. Move incomplete profiles to information_required;
+        // complete review-queue profiles leave the queue as needs_update for Directory approve/publish.
+        listingStatus: complete
+          ? inReviewQueue
+            ? "needs_update"
+            : p.listingStatus
+          : "information_required",
+      });
+      toast.success(
+        complete
+          ? `Verified ${p.clinicName}. Use Directory to approve/publish when permission + completeness gates pass.`
+          : `Verified ${p.clinicName}. Moved to information required until the public profile is complete.`,
+      );
+      setPending((prev) => prev.filter((x) => x.id !== p.id));
+      refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to verify this profile.");
+    }
   }
 
-  function confirmReject() {
+  async function confirmReject() {
     if (!rejectFor) return;
-    toast.success(`Rejected ${rejectFor.clinicName} — moved to information_required`);
-    setPending((prev) => prev.filter((x) => x.id !== rejectFor.id));
-    setRejectFor(null);
-    refresh();
+    try {
+      await directoryService.update(rejectFor.id, {
+        listingStatus: "information_required",
+        verificationStatus: "rejected",
+      });
+      toast.success(`Rejected ${rejectFor.clinicName} — moved to information required.`);
+      setPending((prev) => prev.filter((x) => x.id !== rejectFor.id));
+      setRejectFor(null);
+      refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to reject this profile.");
+    }
   }
 
   return (
