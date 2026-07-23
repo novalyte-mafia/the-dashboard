@@ -8,10 +8,12 @@ import { normalizeJournalSlug } from "@/lib/journal-article-v1";
  * blockquote callouts ("> **Tip:** ..." / "> **Warning:** ..." / plain "> ").
  */
 
-function stripInlineMarkdown(text: string): string {
-  return text
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+function stripInlineMarkdown(text: string, options?: { preserveLinks?: boolean }): string {
+  let next = text.replace(/!\[([^\]]*)\]\(([^)]*)\)/g, "$1");
+  if (!options?.preserveLinks) {
+    next = next.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  }
+  return next
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/__([^_]+)__/g, "$1")
     .replace(/\*([^*\s][^*]*)\*/g, "$1")
@@ -155,11 +157,11 @@ export function markdownToBlocks(markdown: string): {
         const itemLine = lines[i].trim();
         const m = ordered ? itemLine.match(/^\d+[.)]\s+(.*)$/) : itemLine.match(/^[-*+]\s+(.*)$/);
         if (!m) break;
-        items.push(stripInlineMarkdown(m[1]));
+        items.push(stripInlineMarkdown(m[1], { preserveLinks: true }));
         i += 1;
         // Absorb wrapped continuation lines indented under the item.
         while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*+]|\d+[.)])\s/.test(lines[i])) {
-          items[items.length - 1] += ` ${stripInlineMarkdown(lines[i].trim())}`;
+          items[items.length - 1] += ` ${stripInlineMarkdown(lines[i].trim(), { preserveLinks: true })}`;
           i += 1;
         }
       }
@@ -187,7 +189,7 @@ export function markdownToBlocks(markdown: string): {
       paragraphLines.push(next);
       i += 1;
     }
-    const paragraph = stripInlineMarkdown(paragraphLines.join(" "));
+    const paragraph = stripInlineMarkdown(paragraphLines.join(" "), { preserveLinks: true });
     if (paragraph) blocks.push({ type: "paragraph", text: paragraph });
   }
 

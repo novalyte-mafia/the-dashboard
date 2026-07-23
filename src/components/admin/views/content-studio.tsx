@@ -53,6 +53,7 @@ export function ContentStudioView({ params }: { params?: Record<string, unknown>
   const [saveState, setSaveState] = useState<"idle" | "dirty" | "saving" | "saved" | "conflict">("idle");
   const [tab, setTab] = useState<"edit" | "preview">("edit");
   const [generating, setGenerating] = useState(false);
+  const [glmModel, setGlmModel] = useState("glm-5.2");
   const [articleId, setArticleId] = useState<string | null>(articleIdParam ?? null);
   const [rowVersion, setRowVersion] = useState(1);
   const [status, setStatus] = useState<Article["status"]>("draft");
@@ -360,8 +361,9 @@ export function ContentStudioView({ params }: { params?: Record<string, unknown>
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        targetWordCount: 3200,
+        targetWordCount: 4200,
         articleId: articleId ?? undefined,
+        model: glmModel,
       });
       const markdown = [
         `# ${outline.title}`,
@@ -404,8 +406,9 @@ export function ContentStudioView({ params }: { params?: Record<string, unknown>
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        targetWordCount: 3200,
+        targetWordCount: 4200,
         articleId: articleId ?? undefined,
+        model: glmModel,
       });
       const { article } = await contentGenerationService.generateArticle({
         outline,
@@ -414,6 +417,7 @@ export function ContentStudioView({ params }: { params?: Record<string, unknown>
           .map((s) => s.trim())
           .filter(Boolean),
         articleId: articleId ?? undefined,
+        model: glmModel,
       });
       setPendingAi({
         kind: "markdown",
@@ -1298,7 +1302,23 @@ export function ContentStudioView({ params }: { params?: Record<string, unknown>
           </SectionCard>
 
           <SectionCard title="AI Assistants">
-            <div className="space-y-2">
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="glm-model" className="text-xs">Long-form model</Label>
+                <select
+                  id="glm-model"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={glmModel}
+                  onChange={(e) => setGlmModel(e.target.value)}
+                >
+                  <option value="glm-5.2">GLM 5.2</option>
+                  <option value="glm-5">GLM 5</option>
+                  <option value="glm-4.5">GLM 4.5</option>
+                </select>
+                <p className="text-[11px] text-muted-foreground">
+                  Uses server-side <code>GLM_API_KEY</code>. Default long-form model is GLM 5.2.
+                </p>
+              </div>
               <Button variant="outline" size="sm" className="w-full justify-start" disabled={generating} onClick={() => void runSeoSuggest()}>
                 <Sparkles className="size-3.5" /> Suggest SEO
               </Button>

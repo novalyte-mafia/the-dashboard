@@ -30,13 +30,23 @@ import {
 
 const GLM_URL = process.env.GLM_API_URL?.trim() || "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 
+/** Selectable long-form models for Content Studio. */
+export const GLM_LONGFORM_MODEL_OPTIONS = [
+  { id: "glm-5.2", label: "GLM 5.2", description: "Primary long-form editorial model (Z.ai / Zhipu)" },
+  { id: "glm-5", label: "GLM 5", description: "Previous default long-form model" },
+  { id: "glm-4.5", label: "GLM 4.5", description: "Fallback generation model" },
+] as const;
+
+export type GlmLongformModelId = (typeof GLM_LONGFORM_MODEL_OPTIONS)[number]["id"] | string;
+
 const EDITORIAL_SYSTEM_RULES = `You are a senior medical-wellness content writer for Novalyte AI's public Journal (men's health: TRT, GLP-1, peptides, IV therapy, hormone optimization, longevity).
 Editorial rules:
 - Write for a general audience at roughly an 8th-10th grade reading level. Clear, direct, evidence-aware.
 - Never invent statistics, study citations, prices, guarantees, or medical claims. If evidence is uncertain, say so plainly.
 - Never invent search volume, CPC, or keyword-difficulty numbers.
 - No promises of outcomes. Include appropriate caution around prescription treatments.
-- The company name is always "Novalyte AI". Do not fabricate partnerships or credentials.`;
+- The company name is always "Novalyte AI". Do not fabricate partnerships or credentials.
+- Novalyte AI is a technology platform, not a medical provider. Do not imply Novalyte diagnoses, treats, or prescribes.`;
 
 function sanitize(value: string, max = 20000) {
   return value
@@ -45,8 +55,10 @@ function sanitize(value: string, max = 20000) {
     .replace(/(?:\+?1[ .-]?)?(?:\(\d{3}\)|\d{3})[ .-]?\d{3}[ .-]?\d{4}/g, "[redacted phone]");
 }
 
-export function getGlmArticleModel(): string {
-  return process.env.GLM_LONGFORM_MODEL?.trim() || process.env.GLM_MODEL?.trim() || "glm-5";
+export function getGlmArticleModel(override?: string | null): string {
+  const requested = override?.trim();
+  if (requested) return requested;
+  return process.env.GLM_LONGFORM_MODEL?.trim() || process.env.GLM_MODEL?.trim() || "glm-5.2";
 }
 
 interface GlmCallOptions {
@@ -56,6 +68,7 @@ interface GlmCallOptions {
   temperature: number;
   timeoutMs?: number;
   maxAttempts?: number;
+  model?: string | null;
 }
 
 export interface GlmCallMeta {
@@ -74,7 +87,7 @@ async function callGlm(options: GlmCallOptions): Promise<{ text: string; meta: G
   const apiKey = process.env.GLM_API_KEY?.trim();
   if (!apiKey) throw new Error("GLM_API_KEY is not configured.");
 
-  const model = getGlmArticleModel();
+  const model = getGlmArticleModel(options.model);
   const maxAttempts = options.maxAttempts ?? 3;
   const started = Date.now();
   let lastError: unknown;
@@ -167,7 +180,14 @@ Rules: 5-9 sections covering intro through conclusion; section headings are plai
     `Target word count: ${input.targetWordCount}\n` +
     `Editor notes: ${sanitize(input.notes ?? "none", 2000)}`;
 
-  const { text, meta } = await callGlm({ system, user, maxTokens: 2500, temperature: 0.5, timeoutMs: 60000 });
+  const { text, meta } = await callGlm({
+    system,
+    user,
+    maxTokens: 2500,
+    temperature: 0.5,
+    timeoutMs: 60000,
+    model: input.model,
+  });
 
   const parsed = generatedOutlineSchema.safeParse(extractJson(text));
   if (!parsed.success) {
@@ -192,7 +212,7 @@ export async function generateArticleFromOutline(
   const { outline } = input;
   const started = Date.now();
   let totalAttempts = 0;
-  const model = getGlmArticleModel();
+  const model = getGlmArticleModel(input.model);
 
   const contextHeader =
     `Article title: ${sanitize(outline.title, 200)}\n` +
@@ -233,6 +253,7 @@ Formatting rules:
         maxTokens: Math.min(4000, Math.max(1200, Math.round((section.targetWords ?? 300) * 3))),
         temperature: 0.6,
         timeoutMs: 90000,
+        model: input.model,
       });
       totalAttempts += meta.attempts;
       const markdown = stripLeadingHeading(text, section.heading);
@@ -301,7 +322,14 @@ ${improving ? "- Preserve accurate facts from the current version; tighten struc
     `Editor instruction: ${sanitize(input.instruction ?? "none", 1000)}\n` +
     (input.currentMarkdown ? `Current section content:\n${sanitize(input.currentMarkdown, 12000)}` : "No current content; write fresh.");
 
-  const { text, meta } = await callGlm({ system, user, maxTokens: 3000, temperature: 0.6, timeoutMs: 90000 });
+  const { text, meta } = await callGlm({
+    system,
+    user,
+    maxTokens: 3000,
+    temperature: 0.6,
+    timeoutMs: 90000,
+    model: input.model,
+  });
   const markdown = stripLeadingHeading(text, input.sectionHeading);
   const { blocks } = markdownToBlocks(`## ${input.sectionHeading}\n\n${markdown}`);
 
@@ -328,7 +356,14 @@ Rules: keywords are qualitative editorial suggestions only — you have no searc
     `Excerpt: ${sanitize(input.excerpt ?? "", 600)}\n` +
     `Article content (may be truncated):\n${sanitize(input.contentMarkdown ?? "", 12000)}`;
 
-  const { text, meta } = await callGlm({ system, user, maxTokens: 900, temperature: 0.4, timeoutMs: 45000 });
+  const { text, meta } = await callGlm({
+    system,
+    user,
+    maxTokens: 900,
+    temperature: 0.4,
+    timeoutMs: 45000,
+    model: input.model,
+  });
 
   const raw = extractJson(text) as Record<string, unknown> | null;
   const parsed = seoSuggestionsSchema.safeParse({

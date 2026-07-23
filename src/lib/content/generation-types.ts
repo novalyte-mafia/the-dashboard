@@ -23,6 +23,8 @@ export const outlineRequestSchema = z.object({
   secondaryKeywords: z.array(z.string().max(120)).max(20).default([]),
   notes: z.string().max(2000).optional(),
   targetWordCount: z.number().int().min(400).max(6000).default(1800),
+  /** Optional GLM model override (e.g. glm-5.2). Server validates against env defaults. */
+  model: z.string().max(80).optional(),
 });
 export type OutlineRequest = z.infer<typeof outlineRequestSchema>;
 
@@ -59,6 +61,7 @@ export const articleRequestSchema = z.object({
   primaryKeyword: z.string().max(120).optional(),
   secondaryKeywords: z.array(z.string().max(120)).max(20).default([]),
   notes: z.string().max(2000).optional(),
+  model: z.string().max(80).optional(),
 });
 export type ArticleRequest = z.infer<typeof articleRequestSchema>;
 
@@ -101,6 +104,7 @@ export const sectionRequestSchema = z.object({
   keyPoints: z.array(z.string().max(400)).max(12).default([]),
   audience: z.string().max(120).optional(),
   primaryKeyword: z.string().max(120).optional(),
+  model: z.string().max(80).optional(),
 });
 export type SectionRequest = z.infer<typeof sectionRequestSchema>;
 
@@ -121,6 +125,7 @@ export const seoRequestSchema = z.object({
   contentMarkdown: z.string().max(40000).optional(),
   category: z.string().max(120).optional(),
   primaryKeyword: z.string().max(120).optional(),
+  model: z.string().max(80).optional(),
 });
 export type SeoRequest = z.infer<typeof seoRequestSchema>;
 

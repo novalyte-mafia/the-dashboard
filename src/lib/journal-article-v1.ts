@@ -50,10 +50,34 @@ export const articleBlockSchema = z.discriminatedUnion("type", [
     text: z.string(),
   }),
   z.object({
+    type: z.literal("pullquote"),
+    text: z.string().min(1),
+    attribution: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("cta"),
+    variant: z.enum(["assessment", "directory", "custom"]),
+    title: z.string().min(1),
+    body: z.string(),
+    primaryLabel: z.string().min(1),
+    primaryHref: z.string().min(1),
+    secondaryLabel: z.string().optional(),
+    secondaryHref: z.string().optional(),
+  }),
+  z.object({
     type: z.literal("table"),
     headers: z.array(z.string()),
     rows: z.array(z.array(z.string())),
   }),
+]);
+
+export const journalMedicalReviewStatusSchema = z.enum([
+  "draft",
+  "editorial_review",
+  "medical_review_required",
+  "medically_reviewed",
+  "approved",
+  "published",
 ]);
 
 export const journalAuthorSchema = z.object({
@@ -79,6 +103,7 @@ export const journalArticleV1Schema = z.object({
   status: journalArticleStatusSchema,
   author: journalAuthorSchema,
   medicalReviewer: journalReviewerSchema.nullable(),
+  medicalReviewStatus: journalMedicalReviewStatusSchema.optional(),
   contentMarkdown: z.string().nullable(),
   body: z.array(articleBlockSchema),
   tableOfContents: z.array(z.object({
