@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAdminRole } from "@/lib/auth";
+import { getQuoConfig } from "@/lib/quo/env";
+import { resolveQuoCaller } from "@/lib/quo/client";
 
-/** Sanitized Telnyx softphone readiness for Founder-Led Calls. */
+/** Sanitized dialer readiness for Founder-Led Calls (Telnyx + Quo + coach). */
 export async function GET() {
   const admin = await requireAdminRole(["admin", "operations", "sales", "directory_reviewer"]);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -18,6 +20,23 @@ export async function GET() {
     process.env.DEEPGRAM_API_KEY?.trim() && process.env.DEEPGRAM_PROJECT_ID?.trim(),
   );
 
+  const quoConfig = getQuoConfig();
+  let quoFromNumber: string | null = quoConfig.fromNumber ?? null;
+  let quoPhoneNumberId: string | null = quoConfig.phoneNumberId ?? null;
+  let quoName: string | null = null;
+  const quoErrors = [...quoConfig.configErrors];
+  if (quoConfig.configured) {
+    try {
+      const caller = await resolveQuoCaller();
+      quoFromNumber = caller.fromNumber;
+      quoPhoneNumberId = caller.phoneNumberId;
+      quoName = caller.name;
+      if (!quoFromNumber) quoErrors.push("No Quo phone number on workspace");
+    } catch (err) {
+      quoErrors.push(err instanceof Error ? err.message : "Quo API unreachable");
+    }
+  }
+
   return NextResponse.json({
     status: {
       provider: "telnyx",
@@ -31,6 +50,16 @@ export async function GET() {
       // Personal-phone coach only needs Deepgram (mic → transcript → on-screen cues).
       personalPhoneReady: deepgramReady,
       deepgramConfigured: deepgramReady,
+      quo: {
+        provider: "quo",
+        enabled: quoConfig.enabled,
+        configured: quoConfig.configured && quoErrors.length === 0,
+        configErrors: quoErrors,
+        fromNumber: quoFromNumber,
+        phoneNumberId: quoPhoneNumberId,
+        name: quoName,
+        dialMode: "click_to_call",
+      },
     },
   });
 }

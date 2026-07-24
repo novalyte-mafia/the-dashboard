@@ -12,7 +12,65 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     orderBy: { startedAt: "desc" },
     include: { contact: { select: { firstName: true, lastName: true } }, admin: { select: { firstName: true, lastName: true } } },
   });
-  return NextResponse.json({ calls });
+
+  const mapped = calls.map((c) => {
+    const structured = safeJson(c.structuredData) ?? {};
+    const providerMeta =
+      c.providerMetadata && typeof c.providerMetadata === "object"
+        ? (c.providerMetadata as Record<string, unknown>)
+        : {};
+    const dialogueFromTranscript = parseDialogue(c.transcript);
+    const dialogue =
+      (Array.isArray(structured.quoDialogue) ? structured.quoDialogue : null) || dialogueFromTranscript;
+    const summary =
+      (typeof structured.quoSummary === "string" && structured.quoSummary) ||
+      (typeof providerMeta.quoSummary === "string" && providerMeta.quoSummary) ||
+      (typeof providerMeta.recap_summary === "string" && providerMeta.recap_summary) ||
+      null;
+    const recordingUrl =
+      c.recordingUrl ||
+      (typeof structured.quoRecordingUrl === "string" ? structured.quoRecordingUrl : null) ||
+      (typeof providerMeta.quoRecordingUrl === "string" ? providerMeta.quoRecordingUrl : null);
+
+    return {
+      ...c,
+      adminName: c.admin ? `${c.admin.firstName ?? ""} ${c.admin.lastName ?? ""}`.trim() || null : null,
+      contactName: c.contact
+        ? `${c.contact.firstName ?? ""} ${c.contact.lastName ?? ""}`.trim() || null
+        : null,
+      provider: c.provider ?? null,
+      providerCallId: c.providerCallId ?? null,
+      recordingUrl,
+      summary,
+      nextSteps: Array.isArray(structured.quoNextSteps) ? structured.quoNextSteps : [],
+      dialogue,
+      hasTranscript: Boolean(dialogue?.length || structured.hasTranscript),
+      hasRecording: Boolean(recordingUrl || structured.hasRecording),
+      hasSummary: Boolean(summary || structured.hasSummary),
+    };
+  });
+
+  return NextResponse.json({ calls: mapped });
+}
+
+function safeJson(raw: string | null | undefined): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseDialogue(raw: string | null | undefined): Array<Record<string, unknown>> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as Array<Record<string, unknown>>) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

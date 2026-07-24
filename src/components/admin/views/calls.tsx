@@ -2623,13 +2623,13 @@ export function CallsView({ clinicId: initialClinicId }: { clinicId?: string | n
       <div className="space-y-4">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 border-b pb-4">
           <div>
-            <h1 className="font-bold tracking-tight text-2xl">Founder-Led Call Mode</h1>
+            <h1 className="font-bold tracking-tight text-2xl">Founder-Led Calls</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Dial on your personal phone while the silent AI coach listens via mic and cues you on screen. No AI voice on the call.
+              Market Sprint outreach — Call with Quo, capture permission, build Miami directory density before expanding.
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <Badge className="bg-violet-700 text-white">Primary · Personal phone + coach</Badge>
+            <Badge className="bg-emerald-700 text-white">Primary · Quo · Miami Market Sprint</Badge>
             <button
               type="button"
               className="text-[11px] text-muted-foreground underline-offset-2 hover:underline"

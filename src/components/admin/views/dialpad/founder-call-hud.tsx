@@ -442,6 +442,7 @@ export function CallHud({
   durationLabel,
   isMock,
   isPersonalPhone = false,
+  isQuoCall = false,
   callActive,
   assist,
   ending,
@@ -455,14 +456,18 @@ export function CallHud({
   isMock: boolean;
   /** Founder dials on a real phone; this browser only coaches via mic. */
   isPersonalPhone?: boolean;
+  /** Founder dials in Quo desktop app; this tab is script + CRM only. */
+  isQuoCall?: boolean;
   callActive: boolean;
   assist: CallAssist;
   ending?: boolean;
   onEndCall?: () => void;
 }) {
-  const meta = isPersonalPhone && (status === "connected" || status === "active")
-    ? { label: "Personal phone · coaching", tone: "bg-violet-500", pulse: false }
-    : STATUS_META[status] ?? { label: status, tone: "bg-slate-400", pulse: false };
+  const meta = isQuoCall && (status === "connected" || status === "active")
+    ? { label: "Quo · dial in app", tone: "bg-emerald-500", pulse: false }
+    : isPersonalPhone && (status === "connected" || status === "active")
+      ? { label: "Personal phone · coaching", tone: "bg-violet-500", pulse: false }
+      : STATUS_META[status] ?? { label: status, tone: "bg-slate-400", pulse: false };
   const initials = clinicName
     .split(/\s+/)
     .slice(0, 2)
@@ -511,7 +516,13 @@ export function CallHud({
             onClick={onEndCall}
           >
             <PhoneOff className="size-4 mr-2" />
-            {ending ? "Ending..." : isPersonalPhone ? "End coaching session" : "End call"}
+            {ending
+              ? "Ending..."
+              : isQuoCall
+                ? "Done in Quo — save outcome"
+                : isPersonalPhone
+                  ? "End coaching session"
+                  : "End call"}
           </Button>
         </div>
       )}
@@ -544,6 +555,11 @@ export function CallHud({
           <span>
             Mock mode has no real phone audio. You should hear a simulated ringtone in this browser
             while it says Ringing, then a short connect chime. Unmute your speakers.
+          </span>
+        ) : isQuoCall ? (
+          <span>
+            Speak in the Quo desktop app. This tab stays open for your script and to save the outcome
+            after hangup. Mic/coach is optional — only tap Start AI coach if you want on-screen cues.
           </span>
         ) : isPersonalPhone ? (
           <span>

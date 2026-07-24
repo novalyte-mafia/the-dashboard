@@ -182,8 +182,8 @@ export function FormSubmissionsView({ params }: { params?: Record<string, unknow
   return (
     <div>
       <PageHeader
-        title="Forms & Notifications"
-        description="Real production submissions with Slack and email delivery state"
+        title="Messages & Inquiries"
+        description="Central inbox for contact, clinic, partnership, workforce, and other inbound form submissions — with Slack and email delivery status"
         action={
           <Button variant="outline" onClick={() => void load()}>
             <RefreshCw className="size-4" /> Refresh
@@ -191,10 +191,20 @@ export function FormSubmissionsView({ params }: { params?: Record<string, unknow
         }
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Stat label="Recent submissions" value={count} icon={BellRing} />
-        <Stat label="Unread on this page" value={unread} icon={Mail} />
-        <Stat label="Needs delivery attention" value={failed} icon={RefreshCw} />
+        <Stat label="Unread" value={unread} icon={Mail} />
+        <Stat
+          label="Requires response"
+          value={submissions.filter((item) => item.follow_up_status === "new" || item.follow_up_status === "in_progress").length}
+          icon={CheckCircle2}
+        />
+        <Stat
+          label="Responded"
+          value={submissions.filter((item) => item.follow_up_status === "completed" || item.follow_up_status === "closed").length}
+          icon={CheckCircle2}
+        />
+        <Stat label="Failed notifications" value={failed} icon={RefreshCw} />
       </div>
 
       <Card className="mb-4 gap-3 p-4">

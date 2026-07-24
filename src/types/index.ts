@@ -189,6 +189,21 @@ export interface CallSession {
   adminName?: string;
   structuredData?: string;
   callEnvironment?: "practice" | "live";
+  provider?: string;
+  providerCallId?: string;
+  recordingUrl?: string | null;
+  summary?: string | null;
+  nextSteps?: string[];
+  dialogue?: Array<{
+    content?: string;
+    start?: number;
+    end?: number;
+    identifier?: string | null;
+    userId?: string | null;
+  }> | null;
+  hasTranscript?: boolean;
+  hasRecording?: boolean;
+  hasSummary?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -313,8 +328,8 @@ export interface PatientLead {
   consentStatus: "unknown" | "opted_in" | "opted_out";
   leadSource: string;
   campaignSource?: string;
-  qualificationScore: number;
-  urgencyScore: number;
+  qualificationScore?: number;
+  urgencyScore?: number;
   status: PatientLeadStatus;
   assignedClinicId?: ID;
   assignedClinicName?: string;

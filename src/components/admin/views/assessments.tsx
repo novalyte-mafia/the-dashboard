@@ -120,14 +120,24 @@ export function AssessmentsView() {
     {
       key: "assessment",
       header: "Assessment Score",
-      render: (l) => <ScoreBadge score={l.assessmentScore ?? 0} />,
-      sortValue: (l) => l.assessmentScore ?? 0,
+      render: (l) =>
+        typeof l.assessmentScore === "number" ? (
+          <ScoreBadge score={l.assessmentScore} />
+        ) : (
+          <span className="text-xs text-muted-foreground">Unavailable</span>
+        ),
+      sortValue: (l) => l.assessmentScore ?? -1,
     },
     {
       key: "qualification",
       header: "Qual. Score",
-      render: (l) => <ScoreBadge score={l.qualificationScore} />,
-      sortValue: (l) => l.qualificationScore,
+      render: (l) =>
+        typeof l.qualificationScore === "number" ? (
+          <ScoreBadge score={l.qualificationScore} />
+        ) : (
+          <span className="text-xs text-muted-foreground">Unavailable</span>
+        ),
+      sortValue: (l) => l.qualificationScore ?? -1,
       hideOnMobile: true,
     },
     {

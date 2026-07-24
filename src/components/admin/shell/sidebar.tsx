@@ -40,7 +40,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "revenue-overview", label: "Revenue Overview", icon: TrendingUp },
       { id: "operations-overview", label: "Operations Overview", icon: ActivityIcon },
       { id: "alerts", label: "Alerts", icon: ShieldCheck },
-      { id: "form-submissions", label: "Forms & Notifications", icon: Mail },
+      { id: "form-submissions", label: "Messages & Inquiries", icon: Mail },
       { id: "activity", label: "Global Activity", icon: ActivityIcon },
     ],
   },
@@ -175,6 +175,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "patient-analytics", label: "Patient Analytics", icon: Users },
       { id: "geographic-analytics", label: "Geographic Analytics", icon: MapPin },
       { id: "live-website-activity", label: "Live Website Activity", icon: ActivityIcon },
+      { id: "internal-qa-activity", label: "Internal & QA Activity", icon: ShieldCheck },
     ],
   },
   {

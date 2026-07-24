@@ -76,6 +76,8 @@ export function ClinicDetailView({ clinicId }: { clinicId?: string | null }) {
   const [loading, setLoading] = useState(true);
   const [notesDraft, setNotesDraft] = useState("");
   const [tab, setTab] = useState("overview");
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
+  const [enriching, setEnriching] = useState(false);
 
   useEffect(() => {
     if (!clinicId) {
@@ -314,32 +316,156 @@ export function ClinicDetailView({ clinicId }: { clinicId?: string | null }) {
         {/* Calls */}
         <TabsContent value="calls">
           <Card className="p-0">
-            <div className="flex items-center justify-between px-4 py-3 border-b">
+            <div className="flex items-center justify-between px-4 py-3 border-b gap-2 flex-wrap">
               <h3 className="text-sm font-semibold">Call History</h3>
-              <Button size="sm" onClick={() => navigate("calls", clinicId)} disabled={clinic.doNotCall || !clinic.primaryPhone}>
-                <PhoneCall className="size-4" /> Start Call
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={enriching || !clinic.primaryPhone}
+                  onClick={async () => {
+                    setEnriching(true);
+                    try {
+                      const res = await fetch("/api/integrations/quo/enrich", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ clinicId }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        toast.error(data.error ?? "Could not pull Quo call details.");
+                        return;
+                      }
+                      toast.success(
+                        `Pulled Quo details: ${data.enriched ?? 0} enriched` +
+                          (data.created ? `, ${data.created} new` : ""),
+                      );
+                      refresh();
+                    } catch {
+                      toast.error("Network error while pulling Quo details.");
+                    } finally {
+                      setEnriching(false);
+                    }
+                  }}
+                >
+                  {enriching ? "Pulling…" : "Pull Quo transcript / audio"}
+                </Button>
+                <Button size="sm" onClick={() => navigate("calls", clinicId)} disabled={clinic.doNotCall || !clinic.primaryPhone}>
+                  <PhoneCall className="size-4" /> Start Call
+                </Button>
+              </div>
             </div>
             {calls.length === 0 ? (
               <EmptyState icon={PhoneCall} title="No calls logged yet" />
             ) : (
               <div className="divide-y">
-                {calls.map((c) => (
-                  <div key={c.id} className="px-4 py-3">
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium">Attempt #{c.attemptNumber}</span>
-                        <StatusBadge label={c.outcome.replace(/_/g, " ")} color="teal" />
-                        {c.decisionMakerReached && <Badge variant="outline">DM reached</Badge>}
-                        <Badge variant="secondary" className="capitalize">{c.interestLevel}</Badge>
-                      </div>
-                      <span className="text-xs text-muted-foreground">{formatDateTime(c.startedAt)} · {Math.round(c.durationSec / 60)}m</span>
+                {calls.map((c) => {
+                  const open = expandedCallId === c.id;
+                  return (
+                    <div key={c.id} className="px-4 py-3">
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() => setExpandedCallId(open ? null : c.id)}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium">Attempt #{c.attemptNumber}</span>
+                            <StatusBadge label={c.outcome.replace(/_/g, " ")} color="teal" />
+                            {c.decisionMakerReached && <Badge variant="outline">DM reached</Badge>}
+                            <Badge variant="secondary" className="capitalize">{c.interestLevel}</Badge>
+                            {c.provider === "quo" && <Badge variant="outline">Quo</Badge>}
+                            {c.hasSummary && <Badge className="bg-emerald-100 text-emerald-900 border-emerald-200">Summary</Badge>}
+                            {c.hasTranscript && <Badge className="bg-sky-100 text-sky-900 border-sky-200">Transcript</Badge>}
+                            {c.hasRecording && <Badge className="bg-violet-100 text-violet-900 border-violet-200">Audio</Badge>}
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDateTime(c.startedAt)} · {Math.max(1, Math.round(c.durationSec / 60))}m
+                            {c.durationSec > 0 && c.durationSec < 60 ? ` (${c.durationSec}s)` : ""}
+                          </span>
+                        </div>
+                        {c.notes && <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{c.notes}</p>}
+                        {c.nextAction && <p className="text-xs text-primary mt-1">Next: {c.nextAction}</p>}
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          By {c.adminName ?? "—"}
+                          {!c.hasTranscript && !c.hasRecording && !c.hasSummary
+                            ? " · click to expand · use Pull Quo for details"
+                            : " · click to expand details"}
+                        </p>
+                      </button>
+
+                      {open && (
+                        <div className="mt-3 space-y-3 rounded-lg border bg-muted/30 p-3">
+                          {c.summary ? (
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-1">
+                                What this call was about
+                              </p>
+                              <p className="text-sm whitespace-pre-wrap">{c.summary}</p>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              No AI summary yet
+                              {c.provider === "quo" ? " (short/voicemail calls often have transcript + audio instead)." : "."}
+                            </p>
+                          )}
+
+                          {Array.isArray(c.nextSteps) && c.nextSteps.length > 0 && (
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-1">
+                                Next steps
+                              </p>
+                              <ul className="text-sm list-disc pl-4 space-y-0.5">
+                                {c.nextSteps.map((step, i) => (
+                                  <li key={`${c.id}-step-${i}`}>{String(step)}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {c.recordingUrl ? (
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-1">
+                                Recording
+                              </p>
+                              <audio controls preload="none" className="w-full" src={c.recordingUrl}>
+                                <a href={c.recordingUrl} target="_blank" rel="noreferrer">
+                                  Download recording
+                                </a>
+                              </audio>
+                            </div>
+                          ) : null}
+
+                          {Array.isArray(c.dialogue) && c.dialogue.length > 0 ? (
+                            <div>
+                              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mb-1">
+                                Transcript
+                              </p>
+                              <div className="max-h-64 overflow-y-auto space-y-2 text-sm">
+                                {c.dialogue.map((line, i) => {
+                                  const who = line.userId ? "You" : line.identifier || "Them";
+                                  return (
+                                    <div key={`${c.id}-line-${i}`} className="rounded border bg-background px-2.5 py-1.5">
+                                      <p className="text-[10px] font-semibold text-muted-foreground uppercase">
+                                        {who}
+                                        {typeof line.start === "number" ? ` · ${Math.floor(line.start)}s` : ""}
+                                      </p>
+                                      <p>{line.content}</p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              No transcript stored yet. Click <strong>Pull Quo transcript / audio</strong>.
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {c.notes && <p className="text-sm text-muted-foreground mt-1">{c.notes}</p>}
-                    {c.nextAction && <p className="text-xs text-primary mt-1">Next: {c.nextAction}</p>}
-                    <p className="text-xs text-muted-foreground mt-0.5">By {c.adminName ?? "—"}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>

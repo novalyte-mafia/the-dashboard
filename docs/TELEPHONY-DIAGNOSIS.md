@@ -35,8 +35,9 @@ Separately, today’s three cell-phone outreach calls were never logged because:
 
 ## Provider decision
 
-**Selected primary:** Telnyx WebRTC softphone  
-**Secondary fallback:** Manual “Log external call” for cell-phone / off-platform dials  
+**Selected primary (2026-07-23):** **Quo click-to-call** from `+16283333901`. Quo’s public API cannot place calls; Founder-Led opens Quo via `tel:` (set Quo as default calling app) and can sync/webhook call logs.  
+**Secondary:** Telnyx WebRTC (blocked until a Telnyx DID can be purchased).  
+**Tertiary:** Manual “Log external call” + personal-phone coach.  
 **Not primary:** Dialpad (disabled; wrong model for browser mic/speaker)
 
 ## Outside-the-codebase steps (required to place live softphone calls)

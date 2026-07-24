@@ -128,6 +128,7 @@ const PatientAnalyticsView = lazy(() => import("@/components/admin/views/patient
 const GeographicAnalyticsView = lazy(() => import("@/components/admin/views/geographic-analytics").then((m) => ({ default: m.GeographicAnalyticsView })));
 const TrafficAnalyticsView = lazy(() => import("@/components/admin/views/traffic-analytics").then((m) => ({ default: m.TrafficAnalyticsView })));
 const LiveWebsiteActivityView = lazy(() => import("@/components/admin/views/live-website-activity").then((m) => ({ default: m.LiveWebsiteActivityView })));
+const InternalQaActivityView = lazy(() => import("@/components/admin/views/internal-qa-activity").then((m) => ({ default: m.InternalQaActivityView })));
 const SettingsView = lazy(() => import("@/components/admin/views/settings").then((m) => ({ default: m.SettingsView })));
 const TeamAccessView = lazy(() => import("@/components/admin/views/team-access").then((m) => ({ default: m.TeamAccessView })));
 const IntegrationsView = lazy(() => import("@/components/admin/views/integrations").then((m) => ({ default: m.IntegrationsView })));
@@ -229,6 +230,7 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "geographic-analytics": GeographicAnalyticsView,
   "traffic-analytics": TrafficAnalyticsView,
   "live-website-activity": LiveWebsiteActivityView,
+  "internal-qa-activity": InternalQaActivityView,
   "settings": SettingsView,
   "team-access": TeamAccessView,
   "integrations": IntegrationsView,
