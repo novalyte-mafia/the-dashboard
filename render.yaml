@@ -1,0 +1,74 @@
+# Temporary hosting while Vercel billing is fixed.
+# Blueprint: https://dashboard.render.com/blueprints
+services:
+  - type: web
+    name: novalyte-admin
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: node .next/standalone/server.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: HOSTNAME
+        value: "0.0.0.0"
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: NOVALYTE_ACCESS_CODE
+        sync: false
+      - key: NOVALYTE_SESSION_SECRET
+        sync: false
+      - key: NOVALYTE_ADMIN_EMAIL
+        value: admin@novalyte.io
+      - key: NEXT_PUBLIC_DATA_MODE
+        value: hybrid
+      - key: ADMIN_DASHBOARD_URL
+        value: https://admin.novalyte.io
+      - key: MARKETING_SITE_URL
+        value: https://novalyte.io
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: VAPI_API_KEY
+        sync: false
+      - key: VAPI_ASSISTANT_ID
+        sync: false
+      - key: VAPI_PHONE_NUMBER_ID
+        sync: false
+      - key: GLM_API_KEY
+        sync: false
+      - key: GLM_API_URL
+        sync: false
+      - key: GLM_MODEL
+        value: glm-5
+      - key: GLM_LONGFORM_MODEL
+        value: glm-5.2
+      - key: QUO_INTEGRATION_ENABLED
+        value: "true"
+      - key: QUO_API_KEY
+        sync: false
+      - key: QUO_WEBHOOK_SECRET
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: POSTHOG_PERSONAL_API_KEY
+        sync: false
+      - key: POSTHOG_PROJECT_ID
+        sync: false
+      - key: POSTHOG_API_HOST
+        value: https://us.posthog.com
+      - key: JOURNAL_PREVIEW_SECRET
+        sync: false
+      - key: JOURNAL_REVALIDATE_SECRET
+        sync: false
+      - key: DIALPAD_MODE
+        sync: false
+      - key: DIALPAD_API_KEY
+        sync: false
+      - key: DIALPAD_WEBHOOK_SECRET
+        sync: false
