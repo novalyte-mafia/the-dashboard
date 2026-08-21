@@ -19,6 +19,7 @@ import { roleLabel } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { clinicService, notificationService } from "@/services";
 import { appConfig } from "@/config/app-config";
+import { OUTREACH_WORKSPACE_NAME } from "@/lib/outreach/routing";
 
 const VIEW_TITLES: Record<string, { title: string; sub: string }> = {
   "overview": { title: "Executive Overview", sub: "What needs your attention today" },
@@ -31,6 +32,8 @@ const VIEW_TITLES: Record<string, { title: string; sub: string }> = {
   "clinic-detail": { title: "Clinic Profile", sub: "360-degree clinic record" },
   "call-queue": { title: "Outreach Queue", sub: "Founder outreach queue" },
   "calls": { title: "Founder-Led Calls", sub: "Dialpad outreach console — you speak, no AI voice" },
+  "outreach": { title: OUTREACH_WORKSPACE_NAME, sub: "Research public advertising signals, verify contact routes, and prepare clinic prospects for review." },
+  "cold-trainer": { title: "C‑Cold Trainer", sub: "Live call coaching — stay calm, stay concise, ask for the next step." },
   "call-console": { title: "AI Call Console", sub: "Advanced / autonomous call workspace" },
   "follow-ups": { title: "Follow-Ups", sub: "Tasks & next actions" },
   "contacts": { title: "Contacts", sub: "All contacts across clinics" },

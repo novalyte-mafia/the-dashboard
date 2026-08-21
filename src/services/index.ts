@@ -158,7 +158,10 @@ export const dealService = {
       const mrr = mocks.mockDeals.filter((d) => d.stage === "active" || d.stage === "won").reduce((s, d) => s + d.estimatedMonthlyValue, 0);
       return mockAsync({ deals, metrics: { openPipeline, weightedPipeline, wonRevenue, mrr, avgDealValue: Math.round(openPipeline / mocks.mockDeals.length), count: mocks.mockDeals.length } });
     }
-    return fetch(`/api/deals?view=${view ?? "open"}`).then((r) => r.json());
+    return fetch(`/api/deals?view=${view ?? "open"}`).then(async (r) => {
+      if (!r.ok) throw new Error(`Failed to load deals (${r.status})`);
+      return r.json();
+    });
   },
 };
 

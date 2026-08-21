@@ -98,6 +98,67 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     summary: `Pushed lead ${lead.first_name} ${lead.last_name} to ${clinic.name}`,
   }).catch(() => undefined);
 
+  // Email + in-portal notifications for org members (replaces localStorage prefs).
+  const patientLabel = `${lead.first_name} ${lead.last_name}`.trim() || "New patient";
+  try {
+    const { data: members } = await supabase
+      .from("organization_memberships")
+      .select("user_id")
+      .eq("organization_id", clinic.organization_id)
+      .eq("status", "active");
+    const userIds = [...new Set((members ?? []).map((m) => m.user_id).filter(Boolean))];
+    if (userIds.length) {
+      await supabase.from("portal_notifications").insert(
+        userIds.map((userId) => ({
+          organization_id: clinic.organization_id,
+          user_id: userId,
+          type: "lead_delivered",
+          title: `New patient lead for ${clinic.name}`,
+          body: `${patientLabel} was delivered to your clinic portal inbox.`,
+          payload: {
+            assignmentId: assignment.id,
+            leadId,
+            clinicId: clinic.id,
+            href: `/clinic/leads/${assignment.id}`,
+          },
+        })),
+      );
+
+      const resendKey = process.env.RESEND_API_KEY?.trim();
+      if (resendKey) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("email")
+          .in("id", userIds);
+        const emails = [
+          ...new Set((profiles ?? []).map((p) => p.email).filter(Boolean)),
+        ] as string[];
+        const portalUrl =
+          process.env.NEXT_PUBLIC_PORTAL_SITE_URL?.replace(/\/$/, "") ||
+          "https://portal.novalyte.io";
+        await Promise.allSettled(
+          emails.map((to) =>
+            fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${resendKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                from: process.env.RESEND_FROM_EMAIL || "Novalyte <noreply@novalyte.io>",
+                to: [to],
+                subject: `New patient lead for ${clinic.name}`,
+                html: `<p>${patientLabel} was delivered to your clinic portal inbox.</p><p><a href="${portalUrl}/clinic/leads/${assignment.id}">Open lead</a></p>`,
+              }),
+            }),
+          ),
+        );
+      }
+    }
+  } catch (notifyError) {
+    console.warn("clinic lead notify failed", notifyError);
+  }
+
   return NextResponse.json({
     ok: true,
     assignment,

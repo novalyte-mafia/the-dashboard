@@ -8,17 +8,10 @@
  */
 export type DataMode = "live" | "demo" | "hybrid";
 
-const configuredDataMode = process.env.NEXT_PUBLIC_DATA_MODE?.trim().toLowerCase();
-const dataMode: DataMode = configuredDataMode === "live"
-  ? "live"
-  : configuredDataMode === "demo" || configuredDataMode === "mock"
-    ? "demo"
-    : configuredDataMode === "hybrid" || configuredDataMode === "mixed"
-      ? "hybrid"
-      : process.env.NEXT_PUBLIC_MOCK_MODE === "false" ? "live" : "hybrid";
+const dataMode = "live" as DataMode;
 
 export const appConfig = {
-  /** Hybrid mode keeps live records and local fixtures visibly separated. */
+  /** Production clinic and outreach data only. Demo/hybrid fixtures are not loaded. */
   dataMode,
   mockMode: dataMode === "demo",
   liveClinics: dataMode !== "demo",

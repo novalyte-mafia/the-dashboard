@@ -12,11 +12,12 @@ import {
   LayoutDashboard, ListChecks, TrendingUp, Building2, PhoneCall, CalendarCheck,
   Users, Mail, FileText, DollarSign, CreditCard, BarChart3, Globe2, ShieldCheck,
   Stethoscope, MapPin, Megaphone, Briefcase, ShoppingCart, PenTool, Cpu,
-  Activity as ActivityIcon, Settings as SettingsIcon, Search,
-  Menu, LogOut, ChevronDown, ChevronRight, BookOpen, ClipboardList, type LucideIcon,
+  Activity as ActivityIcon, Settings as SettingsIcon, Search, Radar,
+  Menu, LogOut, ChevronDown, ChevronRight, BookOpen, ClipboardList, Headphones, type LucideIcon,
 } from "lucide-react";
 import { initials } from "@/lib/format";
 import { appConfig } from "@/config/app-config";
+import { OUTREACH_WORKSPACE_NAME } from "@/lib/outreach/routing";
 
 export interface NavItem {
   id: ViewId;
@@ -37,6 +38,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "overview", label: "Executive Overview", icon: LayoutDashboard },
       { id: "priorities", label: "Today's Priorities", icon: ListChecks },
       { id: "calls", label: "Founder-Led Calls", icon: PhoneCall },
+      { id: "outreach", label: OUTREACH_WORKSPACE_NAME, icon: Radar },
+      { id: "cold-trainer", label: "C‑Cold Trainer", icon: Headphones },
       { id: "revenue-overview", label: "Revenue Overview", icon: TrendingUp },
       { id: "operations-overview", label: "Operations Overview", icon: ActivityIcon },
       { id: "alerts", label: "Alerts", icon: ShieldCheck },

@@ -95,6 +95,7 @@ export async function GET() {
     metrics: {
       readyToCall,
       callsCompletedToday,
+      followUpsDue: followUpsDueToday,
       followUpsDueToday,
       overdueFollowUps,
       decisionMakersReached,
@@ -106,6 +107,20 @@ export async function GET() {
       revenueWonThisMonth: revenueWonThisMonth._sum.estimatedTotalValue ?? 0,
       revenueWon: revenueWonAgg._sum.estimatedTotalValue ?? 0,
       clinicCount,
+      patientLeads: 0,
+      qualifiedPatientLeads: 0,
+    },
+    conversionMetrics: {
+      dialToConnect: 0,
+      connectToConversation: 0,
+      conversationToInterest: 0,
+      interestToMeeting: 0,
+      meetingToProposal: 0,
+      proposalToClose: 0,
+      leadToBooking: 0,
+      followUpCompletion: 0,
+      avgDealValue: 0,
+      avgSalesCycle: 0,
     },
     priorities,
     pipelineSnapshot,
@@ -113,5 +128,9 @@ export async function GET() {
     overdueTasks,
     recentActivity,
     callSessionsToday,
+    recentCalls: callSessionsToday,
+    dealAlerts: [],
+    patientDemandAlerts: [],
+    nextBestCall: null,
   });
 }

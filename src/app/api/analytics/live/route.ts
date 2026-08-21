@@ -196,6 +196,41 @@ function eventDedupeKey(e: {
   return `${e.distinctId}|${e.sessionId || ""}|${e.event}|${e.page || ""}|${bucket}`;
 }
 
+type HogQlResponse = {
+  columns?: string[];
+  results?: unknown[][];
+};
+
+function hogqlRows(payload: HogQlResponse): Array<Record<string, unknown>> {
+  const columns = payload.columns ?? [];
+  const results = payload.results ?? [];
+  return results.map((row) => {
+    const obj: Record<string, unknown> = {};
+    columns.forEach((col, i) => {
+      obj[col] = row[i];
+    });
+    return obj;
+  });
+}
+
+function asPropRecord(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
 export async function GET(request: NextRequest) {
   const admin = await requireAdminRole(["admin", "operations", "sales", "founder"]);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -204,7 +239,8 @@ export async function GET(request: NextRequest) {
   const traffic = request.nextUrl.searchParams.get("traffic") || "external"; // external | internal | test | all
   const projectId = process.env.POSTHOG_PROJECT_ID?.trim();
   const personalApiKey = process.env.POSTHOG_PERSONAL_API_KEY?.trim();
-  const uiHost = (process.env.NEXT_PUBLIC_POSTHOG_UI_HOST || "https://us.posthog.com").replace(/\/$/, "");
+  const apiHost = (process.env.POSTHOG_API_HOST || "https://us.posthog.com").replace(/\/$/, "");
+  const uiHost = (process.env.NEXT_PUBLIC_POSTHOG_UI_HOST || apiHost).replace(/\/$/, "");
   const posthogConfigured = Boolean(projectId && personalApiKey);
 
   let activityEvents: RawEvent[] = [];
@@ -212,25 +248,43 @@ export async function GET(request: NextRequest) {
 
   if (posthogConfigured && projectId && personalApiKey) {
     try {
+      // Use HogQL query API — the legacy /events/ list endpoint frequently returns 500 on PostHog Cloud.
+      const hogql = `
+        SELECT
+          toString(uuid) AS uuid,
+          event,
+          timestamp,
+          distinct_id,
+          properties
+        FROM events
+        WHERE timestamp >= now() - INTERVAL 2 DAY
+        ORDER BY timestamp DESC
+        LIMIT 250
+      `;
       const response = await fetch(
-        `${uiHost}/api/projects/${projectId}/events/?limit=250&orderBy=-timestamp`,
+        `${apiHost}/api/projects/${encodeURIComponent(projectId)}/query/`,
         {
-          headers: { Authorization: `Bearer ${personalApiKey}` },
-          next: { revalidate: 0 },
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${personalApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ query: { kind: "HogQLQuery", query: hogql } }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(15_000),
         },
       );
       if (!response.ok) {
-        posthogError = `PostHog returned ${response.status}.`;
+        const body = await response.text().catch(() => "");
+        posthogError = `PostHog returned ${response.status}${body ? `: ${body.slice(0, 180)}` : "."}`;
       } else {
-        const payload = (await response.json()) as { results?: Array<Record<string, unknown>> };
+        const payload = (await response.json()) as HogQlResponse;
+        const rows = hogqlRows(payload);
         const seen = new Set<string>();
 
-        activityEvents = (payload.results ?? [])
+        activityEvents = rows
           .map((event) => {
-            const properties =
-              event.properties && typeof event.properties === "object"
-                ? (event.properties as Record<string, unknown>)
-                : {};
+            const properties = asPropRecord(event.properties);
             const name = safeString(event.event) ?? "unknown_event";
             const distinctId =
               safeString(event.distinct_id, 200) ||
@@ -278,7 +332,10 @@ export async function GET(request: NextRequest) {
               sanitizePageUrl(properties.source_page) ||
               safeString(properties.$pathname);
             const sourceEventId = safeString(event.uuid) || safeString(event.id);
-            const timestamp = safeString(event.timestamp) ?? new Date().toISOString();
+            const timestamp =
+              event.timestamp instanceof Date
+                ? event.timestamp.toISOString()
+                : safeString(event.timestamp) ?? new Date().toISOString();
             const dedupe = eventDedupeKey({
               event: name,
               distinctId,

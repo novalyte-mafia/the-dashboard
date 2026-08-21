@@ -51,7 +51,7 @@ export function RevenueOverviewView() {
   );
 
   // Expected to close this month
-  const now = new Date();
+  const now = useMemo(() => new Date(), [deals]);
   const closingThisMonth = useMemo(
     () =>
       deals.filter((d) => {

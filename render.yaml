@@ -4,7 +4,7 @@ services:
   - type: web
     name: novalyte-admin
     runtime: node
-    plan: free
+    plan: starter
     region: oregon
     buildCommand: npm ci && npm run build
     startCommand: node .next/standalone/server.js

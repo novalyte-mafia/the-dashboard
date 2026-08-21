@@ -1,10 +1,12 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState, useCallback, lazy, Suspense } from "react";
+import { createContext, useContext, useMemo, useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { Sidebar } from "@/components/admin/shell/sidebar";
 import { AdminHeader } from "@/components/admin/shell/header";
 import { LoadingState } from "@/components/admin/shared";
 import { appConfig } from "@/config/app-config";
+import { OUTREACH_SUBVIEWS } from "@/lib/outreach/types";
+import { resolveOutreachSubview } from "@/lib/outreach/routing";
 
 export type AdminUser = {
   id: string;
@@ -52,6 +54,8 @@ const ClinicDetailView = lazy(() => import("@/components/admin/views/clinic-deta
 const CallQueueView = lazy(() => import("@/components/admin/views/call-queue").then((m) => ({ default: m.CallQueueView })));
 const CallConsoleView = lazy(() => import("@/components/admin/views/call-console").then((m) => ({ default: m.CallConsoleView })));
 const CallsView = lazy(() => import("@/components/admin/views/calls").then((m) => ({ default: m.CallsView })));
+const ColdTrainerView = lazy(() => import("@/components/admin/views/cold-trainer").then((m) => ({ default: m.ColdTrainerView })));
+const OutreachView = lazy(() => import("@/components/admin/views/outreach").then((m) => ({ default: m.OutreachView })));
 const FollowUpsView = lazy(() => import("@/components/admin/views/follow-ups").then((m) => ({ default: m.FollowUpsView })));
 const ContactsView = lazy(() => import("@/components/admin/views/contacts").then((m) => ({ default: m.ContactsView })));
 const DecisionMakersView = lazy(() => import("@/components/admin/views/decision-makers").then((m) => ({ default: m.DecisionMakersView })));
@@ -149,6 +153,8 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "call-queue": CallQueueView,
   "call-console": CallConsoleView,
   "calls": CallsView,
+  "outreach": OutreachView,
+  "cold-trainer": ColdTrainerView,
   "follow-ups": FollowUpsView,
   "contacts": ContactsView,
   "decision-makers": DecisionMakersView,
@@ -239,29 +245,80 @@ const VIEW_MAP: Record<string, React.ComponentType<any>> = {
   "app-health": AppHealthView,
 };
 
-export function AdminApp({ admin }: { admin: AdminUser }) {
-  const [nav, setNav] = useState<NavState>(() => {
-    if (typeof window === "undefined") return { view: "overview", clinicId: null };
+function resolveInitialNav(initialView?: ViewId, initialClinicId?: string | null, initialParams?: Record<string, unknown>): NavState {
+  const pathView =
+    initialView === "cold-trainer" || initialView === "outreach" ? initialView : null;
+  const nextParams: Record<string, unknown> = { ...(initialParams ?? {}) };
+  if (pathView === "outreach") {
+    const rawSubview = typeof nextParams.outreachSubview === "string" ? nextParams.outreachSubview : null;
+    nextParams.outreachSubview = resolveOutreachSubview(rawSubview);
+  }
+  const viewFromQuery =
+    initialView && !(OUTREACH_SUBVIEWS as readonly string[]).includes(initialView) ? initialView : null;
+  return {
+    view: pathView || viewFromQuery || "overview",
+    clinicId: initialClinicId ?? null,
+    params: Object.keys(nextParams).length ? nextParams : undefined,
+  };
+}
+
+export function AdminApp({
+  admin,
+  initialView,
+  initialClinicId,
+  initialParams,
+}: {
+  admin: AdminUser;
+  initialView?: ViewId;
+  initialClinicId?: string | null;
+  initialParams?: Record<string, unknown>;
+}) {
+  // Keep SSR and first client paint identical — never read window during useState init.
+  const [nav, setNav] = useState<NavState>(() => resolveInitialNav(initialView, initialClinicId, initialParams));
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [copyrightYear] = useState(() => new Date().getFullYear());
+
+  // Soft sync for client-only deep links if props were missing (should be rare).
+  useEffect(() => {
+    if (initialView) return;
     const params = new URLSearchParams(window.location.search);
     const view = params.get("view")?.trim();
     const clinicId = params.get("clinicId")?.trim() || null;
     const submission = params.get("submission")?.trim() || params.get("submissionId")?.trim();
+    const path = window.location.pathname.replace(/\/$/, "");
+    const pathView =
+      path === "/cold-trainer" ? "cold-trainer"
+      : path === "/outreach" ? "outreach"
+      : null;
+    if (!pathView && !view && !clinicId && !submission) return;
     const nextParams: Record<string, unknown> = {};
     if (submission) nextParams.submissionId = submission;
-    return {
-      view: view || "overview",
+    if (pathView === "outreach") {
+      nextParams.outreachSubview = resolveOutreachSubview(view);
+    }
+    setNav({
+      view: pathView || (view && !(OUTREACH_SUBVIEWS as readonly string[]).includes(view) ? view : null) || "overview",
       clinicId,
       params: Object.keys(nextParams).length ? nextParams : undefined,
-    };
-  });
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+    });
+  }, [initialView]);
 
   const navigate = useCallback((view: ViewId, clinicId: string | null = null, params?: Record<string, unknown>) => {
     setNav({ view, clinicId, params });
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
-      url.searchParams.set("view", view);
+      if (view === "cold-trainer") {
+        url.pathname = "/cold-trainer";
+        url.searchParams.set("view", "cold-trainer");
+      } else if (view === "outreach") {
+        url.pathname = "/outreach";
+        const sub = resolveOutreachSubview(typeof params?.outreachSubview === "string" ? params.outreachSubview : null);
+        url.searchParams.set("view", sub);
+      } else {
+        url.pathname = "/";
+        url.searchParams.set("view", view);
+      }
       if (clinicId) url.searchParams.set("clinicId", clinicId);
       else url.searchParams.delete("clinicId");
       const submissionId = typeof params?.submissionId === "string" ? params.submissionId : null;
@@ -325,7 +382,7 @@ export function AdminApp({ admin }: { admin: AdminUser }) {
           <div className="mx-auto max-w-[1400px] flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>Novalyte Admin · Revenue Command Center · {appConfig.dataMode === "hybrid" ? "Hybrid Mode (Live + Demo)" : appConfig.mockMode ? "Demo Mode" : "Live Mode"}</span>
             <span className="flex items-center gap-3">
-              <span>© {new Date().getFullYear()} Novalyte AI</span>
+              <span>© {copyrightYear} Novalyte AI</span>
             </span>
           </div>
         </footer>

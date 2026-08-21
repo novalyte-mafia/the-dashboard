@@ -47,9 +47,24 @@ export function OverviewView() {
 
   if (loading || !data) return <LoadingState label="Loading command center…" />;
 
-  const m = data.metrics;
-  const c = data.conversionMetrics;
-  const nbc = data.nextBestCall;
+  const m = data.metrics ?? {};
+  const c = {
+    dialToConnect: 0,
+    conversationToInterest: 0,
+    interestToMeeting: 0,
+    meetingToProposal: 0,
+    proposalToClose: 0,
+    leadToBooking: 0,
+    avgDealValue: 0,
+    avgSalesCycle: 0,
+    ...(data.conversionMetrics ?? {}),
+  };
+  const nbc = data.nextBestCall ?? null;
+  const dealAlerts = data.dealAlerts ?? [];
+  const patientDemandAlerts = data.patientDemandAlerts ?? [];
+  const recentCalls = data.recentCalls ?? [];
+  const priorities = data.priorities ?? [];
+  const pipelineSnapshot = data.pipelineSnapshot ?? [];
 
   return (
     <div>
@@ -68,7 +83,7 @@ export function OverviewView() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         <MetricCard label="Ready to Call" value={m.readyToCall} icon={PhoneCall} tone="teal" hint="In call queue" onClick={() => navigate("call-queue")} />
         <MetricCard label="Calls Today" value={m.callsCompletedToday} icon={CheckCircle2} tone="green" hint="Answered calls" onClick={() => navigate("call-queue")} />
-        <MetricCard label="Follow-Ups Due" value={m.followUpsDue} icon={CalendarCheck} tone="amber" hint="Today" onClick={() => navigate("follow-ups")} />
+        <MetricCard label="Follow-Ups Due" value={m.followUpsDue ?? m.followUpsDueToday ?? 0} icon={CalendarCheck} tone="amber" hint="Today" onClick={() => navigate("follow-ups")} />
         <MetricCard label="Overdue" value={m.overdueFollowUps} icon={AlertTriangle} tone="rose" hint="Past due" onClick={() => navigate("follow-ups")} />
         <MetricCard label="Interested" value={m.interestedClinics} icon={Flame} tone="amber" hint="Active intent" onClick={() => navigate("clinics")} />
         <MetricCard label="Meetings Booked" value={m.meetingsBooked} icon={CalendarPlus} tone="teal" hint="Scheduled" onClick={() => navigate("meetings")} />
@@ -76,8 +91,8 @@ export function OverviewView() {
         <MetricCard label="Active Deals" value={m.activeOpportunities} icon={Target} tone="violet" hint="Open pipeline" onClick={() => navigate("deals")} />
         <MetricCard label="Pipeline Value" value={formatCurrency(m.estimatedPipelineValue)} icon={TrendingUp} tone="teal" hint="Open deals" onClick={() => navigate("pipeline")} />
         <MetricCard label="Revenue Won" value={formatCurrency(m.revenueWon)} icon={DollarSign} tone="green" hint="All-time" onClick={() => navigate("revenue")} />
-        <MetricCard label="Patient Leads" value={m.patientLeads} icon={Users} tone="violet" hint="Inbound" onClick={() => navigate("patient-leads")} />
-        <MetricCard label="Qualified Leads" value={m.qualifiedPatientLeads} icon={UserCheck} tone="teal" hint="Ready to route" onClick={() => navigate("patient-leads")} />
+        <MetricCard label="Patient Leads" value={m.patientLeads ?? 0} icon={Users} tone="violet" hint="Inbound" onClick={() => navigate("patient-leads")} />
+        <MetricCard label="Qualified Leads" value={m.qualifiedPatientLeads ?? 0} icon={UserCheck} tone="teal" hint="Ready to route" onClick={() => navigate("patient-leads")} />
       </div>
 
       {/* Conversion metrics row */}
@@ -108,11 +123,11 @@ export function OverviewView() {
           bodyClassName="p-0"
           action={<Button variant="ghost" size="sm" onClick={() => navigate("priorities")}>View all <ArrowRight className="size-3.5" /></Button>}
         >
-          {data.priorities.length === 0 ? (
+          {priorities.length === 0 ? (
             <EmptyState icon={ListChecks} title="All clear" description="No outstanding priorities right now." />
           ) : (
             <div className="divide-y divide-border/60">
-              {data.priorities.slice(0, 6).map((p, i) => (
+              {priorities.slice(0, 6).map((p, i) => (
                 <button
                   key={i}
                   onClick={() => navigate(p.href)}
@@ -150,7 +165,7 @@ export function OverviewView() {
           <ChartCard
             title="Clinics per Pipeline Stage"
             type="bar"
-            data={data.pipelineSnapshot.map((s) => ({
+            data={pipelineSnapshot.map((s) => ({
               label: s.label,
               value: s.count,
               color: "var(--primary)",
@@ -160,11 +175,11 @@ export function OverviewView() {
 
         {/* Deal Risk Alerts */}
         <SectionCard title="Deal Risk Alerts" description="Deals needing attention" bodyClassName="p-0">
-          {data.dealAlerts.length === 0 ? (
+          {dealAlerts.length === 0 ? (
             <EmptyState icon={AlertTriangle} title="No risks flagged" />
           ) : (
             <div className="divide-y divide-border/60">
-              {data.dealAlerts.map((a) => (
+              {dealAlerts.map((a) => (
                 <button
                   key={a.id}
                   onClick={() => navigate("deals")}
@@ -187,11 +202,11 @@ export function OverviewView() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         {/* Patient Demand Alerts */}
         <SectionCard title="Patient Demand Alerts" description="Supply-demand gaps & rising markets" bodyClassName="p-0" className="lg:col-span-1">
-          {data.patientDemandAlerts.length === 0 ? (
+          {patientDemandAlerts.length === 0 ? (
             <EmptyState icon={MapPin} title="No demand alerts" />
           ) : (
             <div className="divide-y divide-border/60">
-              {data.patientDemandAlerts.map((a) => (
+              {patientDemandAlerts.map((a) => (
                 <button
                   key={a.id}
                   onClick={() => navigate("demand-overview")}
@@ -210,16 +225,16 @@ export function OverviewView() {
         {/* Recent Calls */}
         <SectionCard
           title="Recent Calls"
-          description={appConfig.demoOperations ? "Demo call history" : `${data.recentCalls.length} most recent`}
+          description={appConfig.demoOperations ? "Demo call history" : `${recentCalls.length} most recent`}
           bodyClassName="p-0"
           className="lg:col-span-2"
           action={<Button variant="ghost" size="sm" onClick={() => navigate("call-queue")}>All calls <ArrowRight className="size-3.5" /></Button>}
         >
-          {data.recentCalls.length === 0 ? (
+          {recentCalls.length === 0 ? (
             <EmptyState icon={PhoneCall} title="No calls logged" />
           ) : (
             <div className="divide-y divide-border/60">
-              {data.recentCalls.slice(0, 5).map((call) => (
+              {recentCalls.slice(0, 5).map((call) => (
                 <RecentCallRow key={call.id} call={call} onOpen={() => call.clinicId && navigate("clinic-detail", call.clinicId)} />
               ))}
             </div>
@@ -262,19 +277,20 @@ function ConversionStat({ icon: Icon, label, value, raw }: { icon: any; label: s
 
 function NextBestCallCard({ clinic, onCall, onOpen }: { clinic: Clinic; onCall: () => void; onOpen: () => void }) {
   const withinHours = isWithinCallingHours(clinic.timezone);
-  const dm = clinic.contacts.find((c) => c.isDecisionMaker);
+  const dm = clinic.contacts?.find((c) => c.isDecisionMaker);
   return (
     <div>
       <button onClick={onOpen} className="text-left w-full">
         <p className="text-sm font-semibold truncate">{clinic.name}</p>
         <p className="text-xs text-muted-foreground mt-0.5 truncate">
-          {[clinic.city, clinic.state].filter(Boolean).join(", ")} · {clinic.timezone.replace("America/", "")}
+          {[clinic.city, clinic.state].filter(Boolean).join(", ") || "Location unknown"}
+          {clinic.timezone ? ` · ${clinic.timezone.replace("America/", "")}` : ""}
         </p>
       </button>
       <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
         <div className="rounded-md border border-border/70 px-2.5 py-1.5">
           <p className="text-[10px] uppercase text-muted-foreground tracking-wide">Local Time</p>
-          <p className="text-sm font-medium">{localTime(clinic.timezone)}</p>
+          <p className="text-sm font-medium">{clinic.timezone ? localTime(clinic.timezone) : "—"}</p>
         </div>
         <div className="rounded-md border border-border/70 px-2.5 py-1.5">
           <p className="text-[10px] uppercase text-muted-foreground tracking-wide">Readiness</p>

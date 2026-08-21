@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft,
   PhoneCall,
+  Headphones,
   Plus,
   MapPin,
   Globe,
@@ -167,6 +168,9 @@ export function ClinicDetailView({ clinicId }: { clinicId?: string | null }) {
                 ))}
               </SelectContent>
             </Select>
+            <Button variant="outline" onClick={() => navigate("cold-trainer", clinicId)}>
+              <Headphones className="size-4" /> Start from Clinic
+            </Button>
             <Button onClick={() => navigate("calls", clinicId)} disabled={clinic.doNotCall || !clinic.primaryPhone}>
               <PhoneCall className="size-4" /> Start Call
             </Button>
@@ -349,6 +353,9 @@ export function ClinicDetailView({ clinicId }: { clinicId?: string | null }) {
                   }}
                 >
                   {enriching ? "Pulling…" : "Pull Quo transcript / audio"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => navigate("cold-trainer", clinicId)}>
+                  <Headphones className="size-4" /> Start from Clinic
                 </Button>
                 <Button size="sm" onClick={() => navigate("calls", clinicId)} disabled={clinic.doNotCall || !clinic.primaryPhone}>
                   <PhoneCall className="size-4" /> Start Call
